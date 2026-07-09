@@ -1,8 +1,34 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, watchFile, unwatchFile } from 'fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+
+let watchedFilePath: string | null = null
+
+function startWatchingFile(filePath: string, webContents: Electron.WebContents): void {
+  if (watchedFilePath) {
+    unwatchFile(watchedFilePath)
+    watchedFilePath = null
+  }
+  try {
+    watchedFilePath = filePath
+    watchFile(filePath, { interval: 200 }, (curr, prev) => {
+      if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
+        try {
+          if (existsSync(filePath)) {
+            const content = readFileSync(filePath, 'utf-8')
+            webContents.send('log-file-changed', content)
+          }
+        } catch (err) {
+          console.error('Failed to read updated file:', err)
+        }
+      }
+    })
+  } catch (err) {
+    console.error('Failed to start file watcher:', err)
+  }
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -42,6 +68,28 @@ function createWindow(): void {
 app.whenReady().then(() => {
   const configPath = join(app.getPath('userData'), 'config.json')
 
+  function readConfig(): any {
+    try {
+      if (existsSync(configPath)) {
+        const configContent = readFileSync(configPath, 'utf-8')
+        return JSON.parse(configContent)
+      }
+    } catch (err) {
+      console.error('Failed to read config:', err)
+    }
+    return {}
+  }
+
+  function writeConfig(data: any): void {
+    try {
+      const current = readConfig()
+      const updated = { ...current, ...data }
+      writeFileSync(configPath, JSON.stringify(updated, null, 2), 'utf-8')
+    } catch (err) {
+      console.error('Failed to write config:', err)
+    }
+  }
+
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -72,11 +120,8 @@ app.whenReady().then(() => {
       if (window) {
         window.setTitle(`Log Viewer - ${filePaths[0]}`)
       }
-      try {
-        writeFileSync(configPath, JSON.stringify({ lastFilePath: filePaths[0] }), 'utf-8')
-      } catch (err) {
-        console.error('Failed to save config:', err)
-      }
+      writeConfig({ lastFilePath: filePaths[0] })
+      startWatchingFile(filePaths[0], event.sender)
       return content
     } catch (e) {
       return null
@@ -86,22 +131,32 @@ app.whenReady().then(() => {
   // 获取上次打开的文件路径和内容
   ipcMain.handle('get-last-file', async (event) => {
     try {
-      if (existsSync(configPath)) {
-        const configContent = readFileSync(configPath, 'utf-8')
-        const { lastFilePath } = JSON.parse(configContent)
-        if (lastFilePath && existsSync(lastFilePath)) {
-          const content = readFileSync(lastFilePath, 'utf-8')
-          const window = BrowserWindow.fromWebContents(event.sender)
-          if (window) {
-            window.setTitle(`Log Viewer - ${lastFilePath}`)
-          }
-          return { filePath: lastFilePath, content }
+      const config = readConfig()
+      const lastFilePath = config.lastFilePath
+      if (lastFilePath && existsSync(lastFilePath)) {
+        const content = readFileSync(lastFilePath, 'utf-8')
+        const window = BrowserWindow.fromWebContents(event.sender)
+        if (window) {
+          window.setTitle(`Log Viewer - ${lastFilePath}`)
         }
+        startWatchingFile(lastFilePath, event.sender)
+        return { filePath: lastFilePath, content }
       }
     } catch (e) {
       console.error('Failed to load last config:', e)
     }
     return null
+  })
+
+  // 获取所有配置设置
+  ipcMain.handle('get-settings', async () => {
+    return readConfig()
+  })
+
+  // 保存所有配置设置
+  ipcMain.handle('save-settings', async (_event, settings) => {
+    writeConfig(settings)
+    return true
   })
 
   createWindow()

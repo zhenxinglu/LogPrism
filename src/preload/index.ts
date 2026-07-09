@@ -8,6 +8,19 @@ const api = {
   },
   getLastFile: async (): Promise<{ filePath: string; content: string } | null> => {
     return ipcRenderer.invoke('get-last-file')
+  },
+  onLogFileChanged: (callback: (content: string) => void): (() => void) => {
+    const listener = (_event: any, content: string): void => callback(content)
+    ipcRenderer.on('log-file-changed', listener)
+    return (): void => {
+      ipcRenderer.off('log-file-changed', listener)
+    }
+  },
+  getSettings: async (): Promise<any> => {
+    return ipcRenderer.invoke('get-settings')
+  },
+  saveSettings: async (settings: any): Promise<boolean> => {
+    return ipcRenderer.invoke('save-settings', settings)
   }
 }
 

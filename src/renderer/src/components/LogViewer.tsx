@@ -1,6 +1,26 @@
-import React, { useState, useEffect } from 'react'
-import { Button, Input, DatePicker, Space, Typography, Layout, Row, Col, message, ConfigProvider, theme, Radio } from 'antd'
-import { FileOutlined, ReloadOutlined, DownOutlined, UpOutlined, RightOutlined } from '@ant-design/icons'
+import React, { useState, useEffect, useRef } from 'react'
+import {
+  Button,
+  Input,
+  DatePicker,
+  Space,
+  Typography,
+  Layout,
+  Row,
+  Col,
+  message,
+  ConfigProvider,
+  theme,
+  Radio,
+  Checkbox
+} from 'antd'
+import {
+  FileOutlined,
+  ReloadOutlined,
+  DownOutlined,
+  UpOutlined,
+  RightOutlined
+} from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 
 const { Text } = Typography
@@ -25,10 +45,99 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('themeMode') as 'dark' | 'light') || 'dark'
   })
+  const [isInitialized, setIsInitialized] = useState(false)
+  const [fontSize, setFontSize] = useState<number>(13)
+  const [wordWrap, setWordWrap] = useState<boolean>(true)
+  const logContainerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    localStorage.setItem('themeMode', themeMode)
-  }, [themeMode])
+    const container = logContainerRef.current
+    if (!container) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey) {
+        e.preventDefault()
+        if (e.deltaY < 0) {
+          setFontSize((prev) => Math.min(prev + 1, 40))
+        } else if (e.deltaY > 0) {
+          setFontSize((prev) => Math.max(prev - 1, 10))
+        }
+      }
+    }
+
+    container.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      container.removeEventListener('wheel', handleWheel)
+    }
+  }, [])
+
+  // Load settings on startup
+  useEffect(() => {
+    const initializeSettings = async () => {
+      try {
+        const config = await window.api.getSettings()
+        if (config) {
+          if (config.includeKeywords !== undefined) setIncludeKeywords(config.includeKeywords)
+          if (config.excludeKeywords !== undefined) setExcludeKeywords(config.excludeKeywords)
+          if (config.isIncludeCaseSensitive !== undefined)
+            setIsIncludeCaseSensitive(config.isIncludeCaseSensitive)
+          if (config.isExcludeCaseSensitive !== undefined)
+            setIsExcludeCaseSensitive(config.isExcludeCaseSensitive)
+          if (config.startTime !== undefined && config.startTime !== null) {
+            setStartTime(dayjs(config.startTime, 'HH:mm:ss.SSS'))
+          } else if (config.startTime === null) {
+            setStartTime(null)
+          }
+          if (config.endTime !== undefined && config.endTime !== null) {
+            setEndTime(dayjs(config.endTime, 'HH:mm:ss.SSS'))
+          } else if (config.endTime === null) {
+            setEndTime(null)
+          }
+          if (config.themeMode !== undefined) setThemeMode(config.themeMode)
+          if (config.fontSize !== undefined) setFontSize(config.fontSize)
+          if (config.wordWrap !== undefined) setWordWrap(config.wordWrap)
+        }
+      } catch (err) {
+        console.error('Failed to initialize settings:', err)
+      } finally {
+        setIsInitialized(true)
+      }
+    }
+    initializeSettings()
+  }, [])
+
+  // Auto-save settings on change (debounced)
+  useEffect(() => {
+    if (!isInitialized) return
+
+    const saveTimer = setTimeout(() => {
+      window.api.saveSettings({
+        includeKeywords,
+        excludeKeywords,
+        isIncludeCaseSensitive,
+        isExcludeCaseSensitive,
+        startTime: startTime ? startTime.format('HH:mm:ss.SSS') : null,
+        endTime: endTime ? endTime.format('HH:mm:ss.SSS') : null,
+        themeMode,
+        fontSize,
+        wordWrap
+      })
+      localStorage.setItem('themeMode', themeMode)
+    }, 500)
+
+    return () => clearTimeout(saveTimer)
+  }, [
+    isInitialized,
+    includeKeywords,
+    excludeKeywords,
+    isIncludeCaseSensitive,
+    isExcludeCaseSensitive,
+    startTime,
+    endTime,
+    themeMode,
+    fontSize,
+    wordWrap
+  ])
 
   const isDark = themeMode === 'dark'
 
@@ -58,7 +167,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       background: isDark ? '#09090b' : '#ffffff',
       color: isDark ? '#e4e4e7' : '#1e293b',
       fontFamily: 'Fira Code, JetBrains Mono, ui-monospace, monospace',
-      fontSize: '13px',
+      fontSize: `${fontSize}px`,
       lineHeight: '1.5',
       flex: 1,
       overflow: 'auto',
@@ -70,8 +179,10 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     footer: {
       background: isDark ? '#0f0f11' : '#f1f5f9',
       borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(0, 0, 0, 0.08)',
-      textAlign: 'left' as const,
-      padding: '6px 12px',
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '2px 12px',
       color: isDark ? '#71717a' : '#64748b'
     },
     footerText: {
@@ -89,18 +200,28 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     autoLoadLastFile()
   }, [])
 
+  useEffect(() => {
+    const unsubscribe = window.api.onLogFileChanged((newContent) => {
+      setLogContent(newContent)
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [])
+
   const handleOpenLogFile = async () => {
-    const content = await window.api.openLogFile();
+    const content = await window.api.openLogFile()
     if (content !== null) {
-      setLogContent(content);
-      setFilteredContent('');
-      setMatchCount(0);
+      setLogContent(content)
+      setFilteredContent('')
+      setMatchCount(0)
     }
   }
 
-  const handleFilterLog = () => {
+  useEffect(() => {
     if (!logContent) {
-      message.warning('请先打开日志文件')
+      setFilteredContent('')
+      setMatchCount(0)
       return
     }
     const lines = logContent.split(/\r?\n/)
@@ -122,8 +243,12 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     const includeArr = parseKeywords(includeKeywords)
     const excludeArr = parseKeywords(excludeKeywords)
 
-    const targetIncludeArr = isIncludeCaseSensitive ? includeArr : includeArr.map(k => k.toLowerCase())
-    const targetExcludeArr = isExcludeCaseSensitive ? excludeArr : excludeArr.map(k => k.toLowerCase())
+    const targetIncludeArr = isIncludeCaseSensitive
+      ? includeArr
+      : includeArr.map((k) => k.toLowerCase())
+    const targetExcludeArr = isExcludeCaseSensitive
+      ? excludeArr
+      : excludeArr.map((k) => k.toLowerCase())
 
     // 时间处理
     const start = startTime ? startTime.format('HH:mm:ss.SSS') : '00:00:00.000'
@@ -135,17 +260,17 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       const t = m[1].length === 8 ? m[1] + '.000' : m[1].padEnd(12, '0')
       return t >= start && t <= end
     }
-    const filtered = lines.filter(line => {
+    const filtered = lines.filter((line) => {
       const lowerLine = line.toLowerCase()
       // 包含关键词
       if (targetIncludeArr.length) {
         const targetLineInclude = isIncludeCaseSensitive ? line : lowerLine
-        if (!targetIncludeArr.some(k => targetLineInclude.includes(k))) return false
+        if (!targetIncludeArr.some((k) => targetLineInclude.includes(k))) return false
       }
       // 排除关键词
       if (targetExcludeArr.length) {
         const targetLineExclude = isExcludeCaseSensitive ? line : lowerLine
-        if (targetExcludeArr.some(k => targetLineExclude.includes(k))) return false
+        if (targetExcludeArr.some((k) => targetLineExclude.includes(k))) return false
       }
       // 时间区间
       if (!inRange(line)) return false
@@ -153,7 +278,15 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     })
     setFilteredContent(filtered.join('\n'))
     setMatchCount(filtered.length)
-  }
+  }, [
+    logContent,
+    includeKeywords,
+    excludeKeywords,
+    isIncludeCaseSensitive,
+    isExcludeCaseSensitive,
+    startTime,
+    endTime
+  ])
 
   return (
     <ConfigProvider
@@ -163,12 +296,20 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           colorPrimary: '#3b82f6',
           colorBgContainer: isDark ? '#18181c' : '#ffffff',
           colorBgLayout: isDark ? '#0f0f11' : '#f5f5f7',
-          borderRadius: 8,
-        },
+          borderRadius: 8
+        }
       }}
     >
       <Layout style={styles.layout}>
-        <Content style={{ padding: '2px 8px 8px 8px', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <Content
+          style={{
+            padding: '2px 8px 8px 8px',
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0
+          }}
+        >
           <div style={styles.filterContainer}>
             <Row gutter={[12, 8]}>
               <Col span={24}>
@@ -183,7 +324,15 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                   }}
                 >
                   <Space size={6}>
-                    {isCollapsed ? <RightOutlined style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }} /> : <DownOutlined style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }} />}
+                    {isCollapsed ? (
+                      <RightOutlined
+                        style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}
+                      />
+                    ) : (
+                      <DownOutlined
+                        style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}
+                      />
+                    )}
                     <b style={styles.headerText}>Filters</b>
                   </Space>
                   <Button
@@ -191,11 +340,16 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                     size="small"
                     icon={isCollapsed ? <DownOutlined /> : <UpOutlined />}
                     onClick={(e) => {
-                      e.stopPropagation();
-                      setIsCollapsed(!isCollapsed);
+                      e.stopPropagation()
+                      setIsCollapsed(!isCollapsed)
                     }}
-                    style={{ color: isDark ? '#94a3b8' : '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    title={isCollapsed ? "展开 / Expand" : "折叠 / Collapse"}
+                    style={{
+                      color: isDark ? '#94a3b8' : '#64748b',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    title={isCollapsed ? '展开 / Expand' : '折叠 / Collapse'}
                   />
                 </div>
               </Col>
@@ -206,8 +360,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                       <Text style={styles.labelText}>Include Keywords:</Text>
                       <Input
                         value={includeKeywords}
-                        onChange={e => setIncludeKeywords(e.target.value)}
-                        onPressEnter={handleFilterLog}
+                        onChange={(e) => setIncludeKeywords(e.target.value)}
                         placeholder="e.g. error, warning"
                         style={{ flex: 1, marginLeft: 8 }}
                       />
@@ -226,8 +379,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                       <Text style={styles.labelText}>Exclude Keywords:</Text>
                       <Input
                         value={excludeKeywords}
-                        onChange={e => setExcludeKeywords(e.target.value)}
-                        onPressEnter={handleFilterLog}
+                        onChange={(e) => setExcludeKeywords(e.target.value)}
                         placeholder="e.g. debug, info"
                         style={{ flex: 1, marginLeft: 8 }}
                       />
@@ -251,7 +403,9 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                         placeholder="00:00:00.000"
                         style={{ width: 150, marginLeft: 8 }}
                       />
-                      <span style={{ margin: '0 12px', color: isDark ? '#94a3b8' : '#64748b' }}>to</span>
+                      <span style={{ margin: '0 12px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                        to
+                      </span>
                       <DatePicker.TimePicker
                         value={endTime}
                         onChange={setEndTime}
@@ -261,41 +415,61 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                       />
                     </div>
                   </Col>
+
                   <Col span={24}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <Text style={styles.labelText}>Theme Style:</Text>
-                      <Radio.Group
-                        value={themeMode}
-                        onChange={e => setThemeMode(e.target.value)}
-                        optionType="button"
-                        buttonStyle="solid"
-                        size="small"
-                        style={{ marginLeft: 8 }}
-                      >
-                        <Radio.Button value="dark">Dark Theme</Radio.Button>
-                        <Radio.Button value="light">Light Theme</Radio.Button>
-                      </Radio.Group>
-                    </div>
+                    <b style={styles.headerText}>Operations</b>
                   </Col>
-                  <Col span={24}><b style={styles.headerText}>Operations</b></Col>
                   <Col span={24}>
                     <Space size="middle">
-                      <Button type="primary" icon={<ReloadOutlined />} onClick={handleFilterLog}>Filter Log</Button>
-                      <Button icon={<FileOutlined />} onClick={handleOpenLogFile}>Open Log File</Button>
+                      <Button
+                        type="primary"
+                        icon={<ReloadOutlined />}
+                        onClick={() => message.success('过滤结果已是最新的实时内容')}
+                      >
+                        Real-time Filtered
+                      </Button>
+                      <Button icon={<FileOutlined />} onClick={handleOpenLogFile}>
+                        Open Log File
+                      </Button>
                     </Space>
                   </Col>
                 </>
               )}
             </Row>
           </div>
-          <div style={styles.logContainer}>
-            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-              {filteredContent || logContent || '请先打开日志文件...'}
+          <div ref={logContainerRef} style={styles.logContainer}>
+            <pre
+              style={{
+                margin: 0,
+                whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
+                wordBreak: wordWrap ? 'break-all' : 'normal'
+              }}
+            >
+              {logContent ? filteredContent : '请先打开日志文件...'}
             </pre>
           </div>
         </Content>
         <Footer style={styles.footer}>
           <Text style={styles.footerText}>Found {matchCount} matches</Text>
+          <Space size="middle" style={{ display: 'flex', alignItems: 'center' }}>
+            <Checkbox
+              checked={wordWrap}
+              onChange={(e) => setWordWrap(e.target.checked)}
+              style={{ color: isDark ? '#94a3b8' : '#475569' }}
+            >
+              Word Wrap
+            </Checkbox>
+            <Radio.Group
+              value={themeMode}
+              onChange={(e) => setThemeMode(e.target.value)}
+              optionType="button"
+              buttonStyle="solid"
+              size="small"
+            >
+              <Radio.Button value="dark">Dark</Radio.Button>
+              <Radio.Button value="light">Light</Radio.Button>
+            </Radio.Group>
+          </Space>
         </Footer>
       </Layout>
     </ConfigProvider>
