@@ -41,6 +41,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const [logContent, setLogContent] = useState('')
   const [filteredContent, setFilteredContent] = useState('')
   const [matchCount, setMatchCount] = useState(0)
+  const [updateTime, setUpdateTime] = useState<string | null>(null)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('themeMode') as 'dark' | 'light') || 'dark'
@@ -201,20 +202,22 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   }, [])
 
   useEffect(() => {
-    const unsubscribe = window.api.onLogFileChanged((newContent) => {
+    const unsubscribe = window.api.onLogFileChanged((newContent: string): void => {
       setLogContent(newContent)
+      setUpdateTime(dayjs().format('HH:mm:ss'))
     })
-    return () => {
+    return (): void => {
       unsubscribe()
     }
   }, [])
 
-  const handleOpenLogFile = async () => {
+  const handleOpenLogFile = async (): Promise<void> => {
     const content = await window.api.openLogFile()
     if (content !== null) {
       setLogContent(content)
       setFilteredContent('')
       setMatchCount(0)
+      setUpdateTime(null)
     }
   }
 
@@ -300,6 +303,13 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         }
       }}
     >
+      <style>{`
+        @keyframes pulse {
+          0% { transform: scale(0.95); opacity: 0.5; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+          70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+          100% { transform: scale(0.95); opacity: 0.5; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+      `}</style>
       <Layout style={styles.layout}>
         <Content
           style={{
@@ -450,7 +460,26 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           </div>
         </Content>
         <Footer style={styles.footer}>
-          <Text style={styles.footerText}>Found {matchCount} matches</Text>
+          <Space size="middle">
+            <Text style={styles.footerText}>Found {matchCount} matches</Text>
+            {updateTime && (
+              <Space size={6} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    backgroundColor: '#10b981',
+                    animation: 'pulse 2s infinite'
+                  }}
+                />
+                <Text style={{ color: isDark ? '#34d399' : '#059669', fontSize: 12 }}>
+                  File updates on {updateTime}
+                </Text>
+              </Space>
+            )}
+          </Space>
           <Space size="middle" style={{ display: 'flex', alignItems: 'center' }}>
             <Checkbox
               checked={wordWrap}
