@@ -1,7 +1,7 @@
 # LogPrism
 
 <p align="center">
-  <strong>LogPrism</strong> - 专为开发者打造的专业、优雅且高效的本地日志分析与查看器。
+  <strong>LogPrism</strong> - A professional, elegant, and efficient local log analysis viewer designed for developers.
 </p>
 
 <p align="center">
@@ -14,78 +14,78 @@
 
 ---
 
-## 📖 项目简介
+## 📖 Introduction
 
-**LogPrism** 是一款跨平台的本地日志查看器，旨在解决开发与运维排查中遇到的“日志体量大、检索效率低、视觉体验差”等痛点。基于 Electron 桌面端技术，LogPrism 提供了极速的文件变动感知、多维度实时过滤机制以及精心打磨的现代 UI 体验，让排查日志变得轻松高效。
-
----
-
-## 🛠️ 技术栈 (Tech Stack)
-
-项目基于主流的现代前端与桌面端技术链构建：
-
-*   **核心框架**：[Electron](https://www.electronjs.org/) (提供跨平台桌面端底层支持及原生系统 API 调用)
-*   **前端框架**：[React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) (保障 UI 逻辑的高可维护性与类型安全)
-*   **UI 库**：[Ant Design (v5)](https://ant.design/) (提供深色/明亮模式无缝切换的高级组件及精致的主题配置)
-*   **构建工具**：[electron-vite](https://electron-vite.org/) (快速的 HMR 开发体验与优化的分包构建)
+**LogPrism** is a cross-platform desktop log viewer designed to tackle common developer pain points: large log files, slow search/retrieval, and uninspired UI designs. Built on Electron, LogPrism offers real-time file change detection, multi-dimensional search filters, and a highly polished user experience.
 
 ---
 
-## 🏗️ 项目架构 (Architecture)
+## 🛠️ Tech Stack
 
-LogPrism 遵循 Electron 的经典**多进程架构**设计，保障了应用的高安全性与高性能：
+Built with a modern, industry-standard desktop development ecosystem:
+
+*   **Core Desktop Framework**: [Electron](https://www.electronjs.org/) (for native cross-platform window management and OS APIs)
+*   **UI Architecture**: [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) (for type safety and component-driven view layers)
+*   **Design System**: [Ant Design (v5)](https://ant.design/) (for seamless Dark/Light theme transitions and premium component aesthetics)
+*   **Build System**: [electron-vite](https://electron-vite.org/) (providing fast HMR during development and highly optimized production builds)
+
+---
+
+## 🏗️ Architecture
+
+LogPrism implements Electron's classic **multi-process architecture** for security and speed:
 
 ```
 my-log-viewer/
 ├── src/
-│   ├── main/          # 主进程 (Main Process)
-│   │                  #  - 处理本地文件系统读写及底层监控 (fs.watch)
-│   │                  #  - 管理应用窗口状态、系统菜单和配置持久化 (config.json)
-│   │                  #  - 响应渲染进程 of IPC 请求
+│   ├── main/          # Main Process
+│   │                  #  - Handles local file I/O and file watchers (fs.watch)
+│   │                  #  - Manages window state, native dialogs, and configuration persistence (config.json)
+│   │                  #  - Responds to IPC calls from the renderer
 │   │
-│   ├── preload/       # 预加载脚本 (Preload Script)
-│   │                  #  - 通过 contextBridge 安全地向渲染进程暴露受限制的 API 
-│   │                  #  - 作为主进程与渲染进程之间的安全通信桥梁
+│   ├── preload/       # Preload Script
+│   │                  #  - Exposes safe IPC bridge APIs to the renderer via contextBridge
+│   │                  #  - Acts as a secure gateway between Main and Renderer
 │   │
-│   └── renderer/      # 渲染进程 (Renderer Process)
-│                      #  - 基于 React 构建的视图层
-│                      #  - 核心组件 LogViewer.tsx 处理日志解析、过滤计算与高级渲染
-│                      #  - 结合 LocalStorage 与全局样式实现深/浅色主题适配
-└── resources/         # 静态资源 (图标等)
+│   └── renderer/      # Renderer Process
+│                      #  - React UI layout and app views
+│                      #  - LogViewer.tsx handles parsing, filtering computation, and virtualized list styling
+│                      #  - Global theme syncing via LocalStorage and Ant Design Providers
+└── resources/         # Static Assets (app icons, etc.)
 ```
 
 ---
 
-## ✨ 核心功能特性 (Features)
+## ✨ Core Features
 
-### 📂 1. 日志文件加载与变动监控
-*   **极速加载**：支持打开 `.log`、`.txt` 等任意本地文本日志。
-*   **自动记忆与恢复**：重启应用时，自动恢复上次打开的文件及之前的查看位置。
-*   **热刷新（实时监控）**：基于 `fs.watch` 监控。外部文件若追加了新日志，应用会自动刷新并实时显示最新内容。
-*   **窗口标题同步**：应用标题动态显示为 `LogPrism - [当前文件绝对路径]`。
+### 📂 1. Log Loading & File System Watcher
+*   **Fast Loading**: Effortlessly load `.log`, `.txt`, and other text-based log files.
+*   **Session Restore**: Automatically records the last-opened file path and position, auto-restoring it upon application launch.
+*   **Real-time Tail/Watch**: Built-in monitoring (`fs.watch`) watches for changes; when new lines are appended by external systems, the viewer automatically refreshes.
+*   **Dynamic Title**: The window title updates automatically to reflect the file path (`LogPrism - [File Path]`).
 
-### 🔍 2. 多维度实时智能过滤
-*   **包含关键词过滤**：支持输入多个关键词（以空格分隔；带空格词组可用双引号 `""` 包裹），支持大小写敏感切换。
-*   **排除关键词过滤**：快速隐藏不需要的日志行，支持多词排除。
-*   **时间区间过滤**：支持指定开始/结束时间（精确到毫秒 `HH:mm:ss.SSS`），自动解析行首时间戳并进行区间过滤。
-*   **实时响应**：所有过滤器、开关的变更均实时生效，无需手动点击“过滤”按钮。
+### 🔍 2. Real-time Multi-Dimensional Filters
+*   **Include Keywords**: Filter for lines matching specific keywords (supports space-delimited words, exact phrase matching using double quotes `"abc def"`, and Case-Sensitivity toggle).
+*   **Exclude Keywords**: Drop noise instantly. Works with the same grouping syntax as inclusion.
+*   **Time-Range Filter**: Extract and filter log lines within specific timeframes. Instantly recognizes milliseconds (`HH:mm:ss.SSS`) from the start of log lines.
+*   **Instant Updates**: Filters calculate in real-time as you type—no manual search button required.
 
-### 🎨 3. 精致的交互与 UI 体验
-*   **双色模式一键切换**：支持**暗黑模式 (Dark Mode)** 和 **明亮模式 (Light Mode)**，状态本地持久化。
-*   **Tail 追踪模式**：开启时，新日志追加会自动滚动到底部。向上滚动时自动挂起，并通过气泡动态提示有新日志到来，点击可一键触底。
-*   **自由缩放字体**：支持 `Ctrl + 鼠标滚轮` 在 `10px` 到 `40px` 之间自由缩放日志字体，自动记忆大小。
-*   **行级自定义标记**：支持右键菜单，可为某一行标记高亮背景色（红、蓝、绿、橙、紫），或将其一键设为时间区间的起点/终点。
-*   **快捷定位与换行**：右下角提供悬浮的“一键置顶/置底”按钮；状态栏提供自动换行 (Word Wrap) 切换。
+### 🎨 3. Premium Interactive UI/UX
+*   **Dual Themes**: Seamless switching between **Dark Mode** and **Light Mode**, persisted locally.
+*   **Smart Tail Mode**: Automatically auto-scrolls to the bottom when new logs stream in. If you scroll up to inspect code, Tail mode is suspended and a dynamic floating badge alerts you of incoming logs. Clicking the badge instantly snaps you to the bottom and resumes tracking.
+*   **Ctrl + Scroll Zooming**: Press `Ctrl` and scroll your mouse wheel to adjust the log font-size dynamically between `10px` and `40px` (persisted on close).
+*   **Row-Level Actions**: Right-click context menus allow developers to bookmark a line's time as the start/end filter range or apply custom colors (Red, Blue, Green, Orange, Purple highlights).
+*   **Speed Navigation**: Dynamic, blurred glassmorphic "Scroll to Top / Bottom" floating buttons fade in when needed and support keyboard shortcuts.
 
 ---
 
-## 🚀 快速开始 (Getting Started)
+## 🚀 Getting Started
 
-### 开发环境准备
+### Prerequisites
 
-确保本地已安装 [Node.js](https://nodejs.org/) (建议 v18+ 或最新 LTS) 以及包管理工具。
+Make sure you have [Node.js](https://nodejs.org/) installed (v18+ recommended) and a package manager of your choice.
 
-### 1. 克隆仓库与安装依赖
+### 1. Clone & Install Dependencies
 
 ```bash
 git clone https://github.com/zhenxinglu/LogPrism.git
@@ -93,52 +93,52 @@ cd LogPrism
 npm install
 ```
 
-### 2. 启动本地开发服务器
+### 2. Run Local Development Server
 
-启动热更新开发环境，将拉起调试窗口：
+Launches the application with Hot Module Replacement (HMR) and dev tools:
 
 ```bash
 npm run dev
 ```
 
-### 3. 项目打包构建 (Production Build)
+### 3. Build & Package for Production
 
-打包对应平台的安装包：
+Build production installers for target platforms:
 
 ```bash
-# 构建 Windows 版本
+# Build for Windows
 npm run build:win
 
-# 构建 macOS 版本
+# Build for macOS
 npm run build:mac
 
-# 构建 Linux 版本
+# Build for Linux
 npm run build:linux
 ```
 
-打包完成后，输出的安装文件将会生成在根目录下的 `dist/` 文件夹中。
+Packaging artifacts will be outputted directly into the root level `dist/` directory.
 
 ---
 
-## 🤝 参与贡献 (Contributing)
+## 🤝 Contributing
 
-我们非常欢迎并感谢任何形式的贡献！无论是一起修 bug、新增特性，还是完善文档。您可以：
+Contributions make the open-source community an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
 
-1.  **提交 Issue**：发现 Bug 或有好的 Feature 创意？请随时提交 [New Issue](https://github.com/zhenxinglu/LogPrism/issues)。
-2.  **Pull Request**：
-    *   Fork 本仓库。
-    *   创建您的特性分支：`git checkout -b feature/amazing-feature`。
-    *   提交您的更改：`git commit -m 'feat: add some amazing feature'`。
-    *   推送至分支：`git push origin feature/amazing-feature`。
-    *   在 GitHub 上发起一个 **Pull Request**。
+1.  **Submit Issues**: Found a bug or have a suggestion? Please file a [New Issue](https://github.com/zhenxinglu/LogPrism/issues).
+2.  **Pull Requests**:
+    *   Fork the Project.
+    *   Create your Feature Branch (`git checkout -b feature/AmazingFeature`).
+    *   Commit your changes (`git commit -m 'feat: add some AmazingFeature'`).
+    *   Push to the Branch (`git push origin feature/AmazingFeature`).
+    *   Open a **Pull Request**.
 
-### 💡 贡献原则
-*   代码结构清晰，遵循 ESLint 规范与 Prettier 格式标准。
-*   新增复杂逻辑请同步在 `feature.md` 中进行功能记录。
-*   合并 PR 前请确保本地能够正常打包通过 (`npm run build:*`)。
+### Guidelines
+*   Keep code clean and formatted according to ESLint and Prettier.
+*   Document any major feature additions in `feature.md`.
+*   Ensure that compilation passes locally (`npm run build:*`) before requesting reviews.
 
 ---
 
-## 📄 开源许可证
+## 📄 License
 
-本项目基于 [MIT License](LICENSE) 许可开源。
+Distributed under the MIT License. See `LICENSE` for more information.
