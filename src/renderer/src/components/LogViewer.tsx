@@ -29,6 +29,20 @@ const { Content, Footer } = Layout
 
 interface LogViewerProps {}
 
+interface LogLineData {
+  text: string
+  originalIndex: number
+  timestamp: string | null
+}
+
+const PRESET_COLORS = [
+  { name: 'Blue', value: 'blue', color: '#3b82f6', borderLeftColor: '#1d4ed8' },
+  { name: 'Red', value: 'red', color: '#ef4444', borderLeftColor: '#b91c1c' },
+  { name: 'Green', value: 'green', color: '#10b981', borderLeftColor: '#047857' },
+  { name: 'Orange', value: 'orange', color: '#f97316', borderLeftColor: '#c2410c' },
+  { name: 'Purple', value: 'purple', color: '#8b5cf6', borderLeftColor: '#6d28d9' }
+]
+
 const defaultStart = dayjs('00:00:00', 'HH:mm:ss')
 const defaultEnd = dayjs('23:59:59.999', 'HH:mm:ss.SSS')
 
@@ -84,6 +98,16 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const searchKeywordRef = useRef('')
   const searchMatchesCountRef = useRef(0)
   const filteredContentRef = useRef('')
+
+  const [filteredLines, setFilteredLines] = useState<LogLineData[]>([])
+  const [markedLines, setMarkedLines] = useState<Record<number, string>>({})
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    originalIndex: number
+    timestamp: string | null
+    lineText: string
+  } | null>(null)
 
   useEffect(() => {
     searchVisibleRef.current = searchVisible
@@ -326,6 +350,8 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       setMatchCount(0)
       setUpdateTime(null)
       setLastUpdateTimestamp(null)
+      setMarkedLines({})
+      setContextMenu(null)
     }
   }
 
@@ -379,7 +405,61 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     }
   }
 
+  const handleSetStartTime = (timestamp: string) => {
+    const parsed = dayjs(timestamp, 'HH:mm:ss.SSS')
+    if (parsed.isValid()) {
+      setStartTime(parsed)
+      message.success(`Start time set to ${timestamp}`)
+    } else {
+      message.error('Invalid timestamp format')
+    }
+  }
+
+  const handleSetEndTime = (timestamp: string) => {
+    const parsed = dayjs(timestamp, 'HH:mm:ss.SSS')
+    if (parsed.isValid()) {
+      setEndTime(parsed)
+      message.success(`End time set to ${timestamp}`)
+    } else {
+      message.error('Invalid timestamp format')
+    }
+  }
+
+  const handleMarkLine = (originalIndex: number, color: string | null) => {
+    setMarkedLines((prev) => {
+      const updated = { ...prev }
+      if (color) {
+        updated[originalIndex] = color
+      } else {
+        delete updated[originalIndex]
+      }
+      return updated
+    })
+  }
+
+  const handleContextMenu = (e: React.MouseEvent<HTMLPreElement>) => {
+    const target = e.target as HTMLElement
+    const lineEl = target.closest('.log-line')
+    if (!lineEl) return
+
+    e.preventDefault()
+
+    const originalIndexStr = lineEl.getAttribute('data-original-index')
+    if (originalIndexStr === null) return
+    const originalIndex = parseInt(originalIndexStr, 10)
+    const timestamp = lineEl.getAttribute('data-timestamp') || null
+
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      originalIndex,
+      timestamp,
+      lineText: lineEl.textContent || ''
+    })
+  }
+
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    setContextMenu(null)
     const container = e.currentTarget
     if (!container) return
 
@@ -494,6 +574,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           }
         }
       } else if (e.key === 'Escape') {
+        setContextMenu(null)
         if (visible) {
           e.preventDefault()
           handleCloseSearch()
@@ -565,15 +646,22 @@ const LogViewer: React.FC<LogViewerProps> = () => {
 
   useEffect(() => {
     const handleDocumentClick = (): void => {
+      setContextMenu(null)
       const selection = window.getSelection()
       if (!selection || selection.toString().trim() === '') {
         setHighlightWord('')
       }
     }
 
+    const handleWindowBlur = (): void => {
+      setContextMenu(null)
+    }
+
     document.addEventListener('click', handleDocumentClick)
+    window.addEventListener('blur', handleWindowBlur)
     return (): void => {
       document.removeEventListener('click', handleDocumentClick)
+      window.removeEventListener('blur', handleWindowBlur)
     }
   }, [])
 
@@ -618,38 +706,40 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   }, [filteredContent, highlightWord, logContent, searchVisible, searchKeyword, currentMatchIndex])
 
   // Save/restore selection range around innerHTML update to prevent losing user text selection
-  const saveSelection = useCallback(
-    (): { startNode: Node; startOffset: number; endNode: Node; endOffset: number } | null => {
-      const selection = window.getSelection()
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
-      const pre = preRef.current
-      if (!pre) return null
-      const range = selection.getRangeAt(0)
-      if (!pre.contains(range.commonAncestorContainer)) return null
+  const saveSelection = useCallback((): {
+    startNode: Node
+    startOffset: number
+    endNode: Node
+    endOffset: number
+  } | null => {
+    const selection = window.getSelection()
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
+    const pre = preRef.current
+    if (!pre) return null
+    const range = selection.getRangeAt(0)
+    if (!pre.contains(range.commonAncestorContainer)) return null
 
-      // Convert DOM range to text offsets relative to pre.textContent
-      const getTextOffset = (node: Node, offset: number): number => {
-        let textOffset = 0
-        const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT)
-        let current: Node | null
-        while ((current = walker.nextNode()) !== null) {
-          if (current === node) {
-            return textOffset + offset
-          }
-          textOffset += (current as Text).length
+    // Convert DOM range to text offsets relative to pre.textContent
+    const getTextOffset = (node: Node, offset: number): number => {
+      let textOffset = 0
+      const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT)
+      let current: Node | null
+      while ((current = walker.nextNode()) !== null) {
+        if (current === node) {
+          return textOffset + offset
         }
-        return textOffset
+        textOffset += (current as Text).length
       }
+      return textOffset
+    }
 
-      return {
-        startNode: range.startContainer,
-        startOffset: getTextOffset(range.startContainer, range.startOffset),
-        endNode: range.endContainer,
-        endOffset: getTextOffset(range.endContainer, range.endOffset)
-      }
-    },
-    []
-  )
+    return {
+      startNode: range.startContainer,
+      startOffset: getTextOffset(range.startContainer, range.startOffset),
+      endNode: range.endContainer,
+      endOffset: getTextOffset(range.endContainer, range.endOffset)
+    }
+  }, [])
 
   const restoreSelection = useCallback(
     (saved: { startOffset: number; endOffset: number } | null): void => {
@@ -691,21 +781,42 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     []
   )
 
+  const renderedLinesHtml = useMemo((): string => {
+    if (!logContent) return '请先打开日志文件...'
+    const htmlLines = highlightedHtml.split('\n')
+    return htmlLines
+      .map((htmlLine, idx): string => {
+        const lineData = filteredLines[idx]
+        if (!lineData) return htmlLine
+
+        const originalIndex = lineData.originalIndex
+        const timestamp = lineData.timestamp
+
+        // Determine if this line is marked
+        const markColor = markedLines[originalIndex]
+        const markedClass = markColor ? ` marked-${markColor}` : ''
+
+        return `<div class="log-line${markedClass}" data-original-index="${originalIndex}" data-timestamp="${timestamp || ''}">${htmlLine || ' '}</div>`
+      })
+      .join('')
+  }, [highlightedHtml, filteredLines, markedLines, logContent])
+
   // Update innerHTML directly (bypassing React reconcile) while preserving selection
   useEffect(() => {
     const pre = preRef.current
     if (!pre) return
 
     const saved = saveSelection()
-    pre.innerHTML = highlightedHtml
+    pre.innerHTML = renderedLinesHtml
     if (saved) {
       restoreSelection(saved)
     }
-  }, [highlightedHtml, saveSelection, restoreSelection])
+  }, [renderedLinesHtml, saveSelection, restoreSelection])
 
   useEffect(() => {
     if (!logContent) {
       setFilteredContent('')
+      setFilteredLines([])
       setMatchCount(0)
       return
     }
@@ -738,31 +849,39 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     // 时间处理
     const start = startTime ? startTime.format('HH:mm:ss.SSS') : '00:00:00.000'
     const end = endTime ? endTime.format('HH:mm:ss.SSS') : '23:59:59.999'
-    const inRange = (line: string) => {
-      // 匹配行首时间戳
-      const m = line.match(/^(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)/)
-      if (!m) return true // 没有时间戳则不过滤
-      const t = m[1].length === 8 ? m[1] + '.000' : m[1].padEnd(12, '0')
-      return t >= start && t <= end
-    }
-    const filtered = lines.filter((line) => {
+
+    const filteredData: LogLineData[] = []
+    lines.forEach((line, index) => {
       const lowerLine = line.toLowerCase()
       // 包含关键词
       if (targetIncludeArr.length) {
         const targetLineInclude = isIncludeCaseSensitive ? line : lowerLine
-        if (!targetIncludeArr.some((k) => targetLineInclude.includes(k))) return false
+        if (!targetIncludeArr.some((k) => targetLineInclude.includes(k))) return
       }
       // 排除关键词
       if (targetExcludeArr.length) {
         const targetLineExclude = isExcludeCaseSensitive ? line : lowerLine
-        if (targetExcludeArr.some((k) => targetLineExclude.includes(k))) return false
+        if (targetExcludeArr.some((k) => targetLineExclude.includes(k))) return
       }
+
       // 时间区间
-      if (!inRange(line)) return false
-      return true
+      const m = line.match(/^(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)/)
+      let timestamp: string | null = null
+      if (m) {
+        timestamp = m[1].length === 8 ? m[1] + '.000' : m[1].padEnd(12, '0')
+        if (timestamp < start || timestamp > end) return
+      }
+
+      filteredData.push({
+        text: line,
+        originalIndex: index,
+        timestamp: m ? (m[1].length === 8 ? m[1] + '.000' : m[1].padEnd(12, '0')) : null
+      })
     })
-    setFilteredContent(filtered.join('\n'))
-    setMatchCount(filtered.length)
+
+    setFilteredLines(filteredData)
+    setFilteredContent(filteredData.map((d) => d.text).join('\n'))
+    setMatchCount(filteredData.length)
   }, [
     logContent,
     includeKeywords,
@@ -816,6 +935,110 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           background-color: ${isDark ? '#ea580c' : '#f97316'};
           color: #ffffff;
           font-weight: bold;
+        }
+
+        .log-line {
+          display: block;
+          padding: 0 4px;
+          transition: background-color 0.15s ease;
+          border-left: 3px solid transparent;
+        }
+        .log-line:hover {
+          background-color: ${isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)'};
+        }
+        .log-line.marked-blue {
+          background-color: #3b82f6;
+          color: #ffffff;
+          border-left-color: #1d4ed8;
+        }
+        .log-line.marked-red {
+          background-color: #ef4444;
+          color: #ffffff;
+          border-left-color: #b91c1c;
+        }
+        .log-line.marked-green {
+          background-color: #10b981;
+          color: #ffffff;
+          border-left-color: #047857;
+        }
+        .log-line.marked-orange {
+          background-color: #f97316;
+          color: #ffffff;
+          border-left-color: #c2410c;
+        }
+        .log-line.marked-purple {
+          background-color: #8b5cf6;
+          color: #ffffff;
+          border-left-color: #6d28d9;
+        }
+        
+        .custom-context-menu {
+          min-width: 140px;
+          background: ${isDark ? 'rgba(24, 24, 28, 0.95)' : 'rgba(255, 255, 255, 0.98)'};
+          backdrop-filter: blur(12px);
+          border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'};
+          border-radius: 8px;
+          padding: 4px 0;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+          font-size: 13px;
+          color: ${isDark ? '#e4e4e7' : '#1e293b'};
+          user-select: none;
+        }
+        .menu-item {
+          padding: 8px 14px;
+          cursor: pointer;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          position: relative;
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .menu-item:hover {
+          background: ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'};
+          color: ${isDark ? '#ffffff' : '#000000'};
+        }
+        .menu-item.disabled {
+          color: ${isDark ? '#52525b' : '#a1a1aa'};
+          cursor: not-allowed;
+        }
+        .menu-item.disabled:hover {
+          background: transparent;
+          color: ${isDark ? '#52525b' : '#a1a1aa'};
+        }
+        .menu-item.has-submenu::after {
+          content: '▶';
+          font-size: 9px;
+          color: ${isDark ? '#71717a' : '#94a3b8'};
+          margin-left: 8px;
+        }
+        .menu-item.has-submenu:hover .submenu {
+          display: block;
+        }
+        .submenu {
+          display: none;
+          position: absolute;
+          top: -4px;
+          min-width: 110px;
+          background: ${isDark ? 'rgba(24, 24, 28, 0.98)' : 'rgba(255, 255, 255, 0.98)'};
+          backdrop-filter: blur(12px);
+          border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'};
+          border-radius: 8px;
+          padding: 4px 0;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+        .submenu-item {
+          padding: 8px 12px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          transition: background 0.15s ease, color 0.15s ease;
+          color: ${isDark ? '#e4e4e7' : '#1e293b'};
+        }
+        .submenu-item:hover {
+          background: ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'};
+          color: ${isDark ? '#ffffff' : '#000000'};
         }
       `}</style>
       <Layout style={styles.layout}>
@@ -960,6 +1183,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
             <pre
               ref={preRef}
               onDoubleClick={handleDoubleClick}
+              onContextMenu={handleContextMenu}
               style={{
                 margin: 0,
                 whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
@@ -967,6 +1191,95 @@ const LogViewer: React.FC<LogViewerProps> = () => {
               }}
             />
           </div>
+          {contextMenu && (
+            <div
+              className="custom-context-menu"
+              style={{
+                position: 'fixed',
+                left: contextMenu.x,
+                top: contextMenu.y,
+                zIndex: 10000
+              }}
+            >
+              <div
+                className={`menu-item ${!contextMenu.timestamp ? 'disabled' : ''}`}
+                onClick={() => {
+                  if (contextMenu.timestamp) {
+                    handleSetStartTime(contextMenu.timestamp)
+                    setContextMenu(null)
+                  }
+                }}
+              >
+                Set as Start Time
+              </div>
+              <div
+                className={`menu-item ${!contextMenu.timestamp ? 'disabled' : ''}`}
+                onClick={() => {
+                  if (contextMenu.timestamp) {
+                    handleSetEndTime(contextMenu.timestamp)
+                    setContextMenu(null)
+                  }
+                }}
+              >
+                Set as End Time
+              </div>
+              <div className="menu-item has-submenu">
+                Mark this line
+                <div
+                  className="submenu"
+                  style={{
+                    left: contextMenu.x + 260 > window.innerWidth ? '-112px' : '138px'
+                  }}
+                >
+                  {PRESET_COLORS.map((color) => {
+                    const isCurrentColor = markedLines[contextMenu.originalIndex] === color.value
+                    return (
+                      <div
+                        key={color.value}
+                        className="submenu-item"
+                        onClick={() => {
+                          handleMarkLine(contextMenu.originalIndex, color.value)
+                          setContextMenu(null)
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: 24,
+                            height: 12,
+                            borderRadius: '2px',
+                            backgroundColor: color.color,
+                            borderLeft: `3px solid ${color.borderLeftColor || 'transparent'}`
+                          }}
+                        />
+                        <span style={{ flex: 1 }}>{color.name}</span>
+                        {isCurrentColor && (
+                          <span style={{ fontSize: 10, color: '#3b82f6' }}>✓</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                  <div
+                    style={{
+                      height: 1,
+                      background: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+                      margin: '4px 0'
+                    }}
+                  />
+                  <div
+                    className="submenu-item"
+                    onClick={() => {
+                      handleMarkLine(contextMenu.originalIndex, null)
+                      setContextMenu(null)
+                    }}
+                    style={{ color: isDark ? '#f87171' : '#dc2626' }}
+                  >
+                    Clear Mark
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           {isTailSuspended && hasNewLogs && (
             <div
               onClick={handleResumeTail}

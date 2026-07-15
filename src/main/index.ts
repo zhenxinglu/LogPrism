@@ -118,7 +118,7 @@ app.whenReady().then(() => {
       const content = readFileSync(filePaths[0], 'utf-8')
       const window = BrowserWindow.fromWebContents(event.sender)
       if (window) {
-        window.setTitle(`Log Viewer - ${filePaths[0]}`)
+        window.setTitle(`LogPrism - ${filePaths[0]}`)
       }
       writeConfig({ lastFilePath: filePaths[0] })
       startWatchingFile(filePaths[0], event.sender)
@@ -137,7 +137,7 @@ app.whenReady().then(() => {
         const content = readFileSync(lastFilePath, 'utf-8')
         const window = BrowserWindow.fromWebContents(event.sender)
         if (window) {
-          window.setTitle(`Log Viewer - ${lastFilePath}`)
+          window.setTitle(`LogPrism - ${lastFilePath}`)
         }
         startWatchingFile(lastFilePath, event.sender)
         return { filePath: lastFilePath, content }

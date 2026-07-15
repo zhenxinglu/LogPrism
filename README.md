@@ -1,6 +1,6 @@
-# my-log-viewer
+# LogPrism
 
-An Electron application with React and TypeScript
+LogPrism - A professional and elegant log analysis viewer
 
 ## Recommended IDE Setup
 
