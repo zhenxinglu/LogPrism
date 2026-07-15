@@ -13,6 +13,7 @@ declare global {
       downloadUpdate: () => Promise<any>
       quitAndInstall: () => Promise<any>
       onUpdaterEvent: (channel: string, callback: (data: any) => void) => () => void
+      getAppVersion: () => Promise<string>
     }
   }
 }

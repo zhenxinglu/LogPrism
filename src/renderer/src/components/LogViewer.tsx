@@ -88,6 +88,9 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const logContainerRef = useRef<HTMLDivElement>(null)
   const preRef = useRef<HTMLPreElement>(null)
 
+  // App version
+  const [appVersion, setAppVersion] = useState<string>('')
+
   // Update check states
   const [updateModalVisible, setUpdateModalVisible] = useState(false)
   const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'>('idle')
@@ -240,6 +243,13 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   // Load settings on startup
   useEffect(() => {
     const initializeSettings = async () => {
+      try {
+        const version = await window.api.getAppVersion()
+        setAppVersion(version)
+      } catch (err) {
+        console.error('Failed to get app version:', err)
+      }
+
       try {
         const config = await window.api.getSettings()
         if (config) {
@@ -1522,6 +1532,11 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         </Content>
         <Footer style={styles.footer}>
           <Space size="middle">
+            {appVersion && (
+              <Text style={{ ...styles.footerText, marginRight: 8, opacity: 0.8 }}>
+                v{appVersion}
+              </Text>
+            )}
             <Text style={styles.footerText}>Found {matchCount} matches</Text>
             {updateTime && (
               <Space size={6} style={{ display: 'inline-flex', alignItems: 'center' }}>
@@ -1640,7 +1655,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 <Text strong style={{ fontSize: 16 }}>
                   You are on the latest version!
                 </Text>
-                <Text type="secondary">LogPrism is up to date.</Text>
+                <Text type="secondary">LogPrism v{appVersion} is up to date.</Text>
                 <div style={{ textAlign: 'right', marginTop: 12, width: '100%' }}>
                   <Button type="primary" onClick={() => setUpdateModalVisible(false)}>
                     OK

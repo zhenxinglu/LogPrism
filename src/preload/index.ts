@@ -48,6 +48,9 @@ const api = {
       }
     }
     return (): void => {}
+  },
+  getAppVersion: async (): Promise<string> => {
+    return ipcRenderer.invoke('get-app-version')
   }
 }
 
