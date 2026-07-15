@@ -21,6 +21,33 @@ const api = {
   },
   saveSettings: async (settings: any): Promise<boolean> => {
     return ipcRenderer.invoke('save-settings', settings)
+  },
+  checkForUpdates: async (): Promise<any> => {
+    return ipcRenderer.invoke('updater:check')
+  },
+  downloadUpdate: async (): Promise<any> => {
+    return ipcRenderer.invoke('updater:download')
+  },
+  quitAndInstall: async (): Promise<any> => {
+    return ipcRenderer.invoke('updater:install')
+  },
+  onUpdaterEvent: (channel: string, callback: (data: any) => void): (() => void) => {
+    const validChannels = [
+      'updater:checking',
+      'updater:available',
+      'updater:not-available',
+      'updater:progress',
+      'updater:downloaded',
+      'updater:error'
+    ]
+    if (validChannels.includes(channel)) {
+      const listener = (_event: any, data: any): void => callback(data)
+      ipcRenderer.on(channel, listener)
+      return (): void => {
+        ipcRenderer.off(channel, listener)
+      }
+    }
+    return (): void => {}
   }
 }
 

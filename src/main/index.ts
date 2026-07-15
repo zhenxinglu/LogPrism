@@ -2,9 +2,11 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { readFileSync, writeFileSync, existsSync, watchFile, unwatchFile } from 'fs'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
+import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 
 let watchedFilePath: string | null = null
+let mainWindow: BrowserWindow | null = null
 
 function startWatchingFile(filePath: string, webContents: Electron.WebContents): void {
   if (watchedFilePath) {
@@ -32,7 +34,7 @@ function startWatchingFile(filePath: string, webContents: Electron.WebContents):
 
 function createWindow(): void {
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 900,
     height: 670,
     show: false,
@@ -45,7 +47,11 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+    mainWindow?.show()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -157,6 +163,55 @@ app.whenReady().then(() => {
   ipcMain.handle('save-settings', async (_event, settings) => {
     writeConfig(settings)
     return true
+  })
+
+  // Configure auto-updater
+  autoUpdater.autoDownload = false
+  autoUpdater.logger = console
+
+  autoUpdater.on('checking-for-update', () => {
+    mainWindow?.webContents.send('updater:checking')
+  })
+  autoUpdater.on('update-available', (info) => {
+    mainWindow?.webContents.send('updater:available', info)
+  })
+  autoUpdater.on('update-not-available', (info) => {
+    mainWindow?.webContents.send('updater:not-available', info)
+  })
+  autoUpdater.on('download-progress', (progressObj) => {
+    mainWindow?.webContents.send('updater:progress', progressObj)
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    mainWindow?.webContents.send('updater:downloaded', info)
+  })
+  autoUpdater.on('error', (err) => {
+    mainWindow?.webContents.send(
+      'updater:error',
+      err == null ? 'Unknown error' : (err.stack || err.message || err.toString())
+    )
+  })
+
+  // Updater IPC handlers
+  ipcMain.handle('updater:check', async () => {
+    try {
+      return await autoUpdater.checkForUpdates()
+    } catch (err) {
+      console.error('Error checking updates:', err)
+      return { error: true, message: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('updater:download', async () => {
+    try {
+      return await autoUpdater.downloadUpdate()
+    } catch (err) {
+      console.error('Error starting download:', err)
+      return { error: true, message: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('updater:install', async () => {
+    autoUpdater.quitAndInstall()
   })
 
   createWindow()

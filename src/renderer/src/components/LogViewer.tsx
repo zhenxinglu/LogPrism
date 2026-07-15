@@ -12,7 +12,10 @@ import {
   ConfigProvider,
   theme,
   Radio,
-  Checkbox
+  Checkbox,
+  Modal,
+  Progress,
+  Spin
 } from 'antd'
 import {
   FileOutlined,
@@ -84,6 +87,90 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false)
   const logContainerRef = useRef<HTMLDivElement>(null)
   const preRef = useRef<HTMLPreElement>(null)
+
+  // Update check states
+  const [updateModalVisible, setUpdateModalVisible] = useState(false)
+  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'>('idle')
+  const [updateInfo, setUpdateInfo] = useState<{ version: string; releaseNotes?: string } | null>(null)
+  const [downloadPercent, setDownloadPercent] = useState<number>(0)
+  const [updateErrorMsg, setUpdateErrorMsg] = useState<string>('')
+
+  useEffect(() => {
+    // Listen to updater IPC events
+    const unsubChecking = window.api.onUpdaterEvent('updater:checking', () => {
+      setUpdateStatus('checking')
+      setUpdateModalVisible(true)
+    })
+
+    const unsubAvailable = window.api.onUpdaterEvent('updater:available', (info) => {
+      setUpdateInfo(info)
+      setUpdateStatus('available')
+      setUpdateModalVisible(true)
+    })
+
+    const unsubNotAvailable = window.api.onUpdaterEvent('updater:not-available', () => {
+      setUpdateStatus('not-available')
+      setUpdateModalVisible(true)
+    })
+
+    const unsubProgress = window.api.onUpdaterEvent('updater:progress', (progressObj) => {
+      setUpdateStatus('downloading')
+      setDownloadPercent(Math.round(progressObj.percent || 0))
+    })
+
+    const unsubDownloaded = window.api.onUpdaterEvent('updater:downloaded', (info) => {
+      setUpdateInfo(info)
+      setUpdateStatus('downloaded')
+    })
+
+    const unsubError = window.api.onUpdaterEvent('updater:error', (errorText) => {
+      setUpdateErrorMsg(errorText || 'Failed to update')
+      setUpdateStatus('error')
+      setUpdateModalVisible(true)
+    })
+
+    return () => {
+      unsubChecking()
+      unsubAvailable()
+      unsubNotAvailable()
+      unsubProgress()
+      unsubDownloaded()
+      unsubError()
+    }
+  }, [])
+
+  const handleCheckForUpdates = async () => {
+    setUpdateErrorMsg('')
+    setUpdateInfo(null)
+    setDownloadPercent(0)
+    setUpdateStatus('checking')
+    setUpdateModalVisible(true)
+    try {
+      await window.api.checkForUpdates()
+    } catch (err) {
+      setUpdateErrorMsg(err instanceof Error ? err.message : String(err))
+      setUpdateStatus('error')
+    }
+  }
+
+  const handleDownloadUpdate = async () => {
+    setUpdateStatus('downloading')
+    setDownloadPercent(0)
+    try {
+      await window.api.downloadUpdate()
+    } catch (err) {
+      setUpdateErrorMsg(err instanceof Error ? err.message : String(err))
+      setUpdateStatus('error')
+    }
+  }
+
+  const handleInstallUpdate = async () => {
+    try {
+      await window.api.quitAndInstall()
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err))
+    }
+  }
 
   // Search states
   const [searchVisible, setSearchVisible] = useState(false)
@@ -1455,6 +1542,14 @@ const LogViewer: React.FC<LogViewerProps> = () => {
             )}
           </Space>
           <Space size="middle" style={{ display: 'flex', alignItems: 'center' }}>
+            <Button
+              type="text"
+              size="small"
+              onClick={handleCheckForUpdates}
+              style={{ color: isDark ? '#94a3b8' : '#475569', padding: '0 4px', fontSize: 12 }}
+            >
+              Check for Updates
+            </Button>
             <Checkbox
               checked={tailMode}
               onChange={(e) => handleTailModeChange(e.target.checked)}
@@ -1481,6 +1576,128 @@ const LogViewer: React.FC<LogViewerProps> = () => {
             </Radio.Group>
           </Space>
         </Footer>
+        <Modal
+          title="Check for Updates"
+          open={updateModalVisible}
+          onCancel={() => setUpdateModalVisible(false)}
+          footer={null}
+          destroyOnClose
+          styles={{
+            body: {
+              padding: '12px 0 0 0',
+              color: isDark ? '#e4e4e7' : '#1e293b'
+            }
+          }}
+        >
+          <div style={{ textAlign: 'center', padding: '16px 0' }}>
+            {updateStatus === 'checking' && (
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Spin size="large" />
+                <Text>Checking for updates...</Text>
+              </Space>
+            )}
+
+            {updateStatus === 'available' && (
+              <Space direction="vertical" size="middle" style={{ width: '100%', textAlign: 'left' }}>
+                <Text strong style={{ fontSize: 16 }}>
+                  A new version is available!
+                </Text>
+                <div>
+                  <Text style={{ display: 'block' }}>
+                    New Version: <strong style={{ color: '#3b82f6' }}>v{updateInfo?.version}</strong>
+                  </Text>
+                  {updateInfo?.releaseNotes && (
+                    <div style={{
+                      marginTop: 12,
+                      padding: 8,
+                      background: isDark ? '#18181c' : '#f5f5f7',
+                      borderRadius: 4,
+                      maxHeight: 150,
+                      overflowY: 'auto',
+                      border: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.06)',
+                      fontSize: 12
+                    }}>
+                      <pre style={{ margin: 0, fontFamily: 'inherit', whiteSpace: 'pre-wrap' }}>
+                        {updateInfo.releaseNotes}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: 'right', marginTop: 12 }}>
+                  <Space>
+                    <Button onClick={() => setUpdateModalVisible(false)}>Later</Button>
+                    <Button type="primary" onClick={handleDownloadUpdate}>
+                      Download Update
+                    </Button>
+                  </Space>
+                </div>
+              </Space>
+            )}
+
+            {updateStatus === 'not-available' && (
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <span style={{ fontSize: 40, color: '#10b981' }}>✓</span>
+                <Text strong style={{ fontSize: 16 }}>
+                  You are on the latest version!
+                </Text>
+                <Text type="secondary">LogPrism is up to date.</Text>
+                <div style={{ textAlign: 'right', marginTop: 12, width: '100%' }}>
+                  <Button type="primary" onClick={() => setUpdateModalVisible(false)}>
+                    OK
+                  </Button>
+                </div>
+              </Space>
+            )}
+
+            {updateStatus === 'downloading' && (
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Text>Downloading update...</Text>
+                <Progress percent={downloadPercent} status="active" />
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Please do not close the application during the download.
+                </Text>
+              </Space>
+            )}
+
+            {updateStatus === 'downloaded' && (
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <span style={{ fontSize: 40, color: '#10b981' }}>⚡</span>
+                <Text strong style={{ fontSize: 16 }}>
+                  Update Downloaded!
+                </Text>
+                <Text>The application needs to restart to apply the update.</Text>
+                <div style={{ textAlign: 'right', marginTop: 12, width: '100%' }}>
+                  <Space>
+                    <Button onClick={() => setUpdateModalVisible(false)}>Later</Button>
+                    <Button type="primary" onClick={handleInstallUpdate}>
+                      Restart and Install
+                    </Button>
+                  </Space>
+                </div>
+              </Space>
+            )}
+
+            {updateStatus === 'error' && (
+              <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <span style={{ fontSize: 40, color: '#ef4444' }}>⚠</span>
+                <Text strong style={{ fontSize: 16 }}>
+                  Update Failed
+                </Text>
+                <Text type="danger" style={{ display: 'block', wordBreak: 'break-all' }}>
+                  {updateErrorMsg}
+                </Text>
+                <div style={{ textAlign: 'right', marginTop: 12, width: '100%' }}>
+                  <Space>
+                    <Button onClick={() => setUpdateModalVisible(false)}>Close</Button>
+                    <Button type="primary" onClick={handleCheckForUpdates}>
+                      Retry
+                    </Button>
+                  </Space>
+                </div>
+              </Space>
+            )}
+          </div>
+        </Modal>
       </Layout>
     </ConfigProvider>
   )
