@@ -20,6 +20,32 @@
 
 ---
 
+## 🖼️ Screenshots
+
+<p align="center">
+  <img src="docs/images/dark_mode.png" alt="Dark Mode" width="100%" />
+  <br>
+  <sub>Sleek and modern Dark Mode interface with custom highlighting and speed navigation.</sub>
+</p>
+
+<br>
+
+<p align="center">
+  <img src="docs/images/light_mode.png" alt="Light Mode" width="100%" />
+  <br>
+  <sub>Clean and elegant Light Mode interface with real-time multi-dimensional filters.</sub>
+</p>
+
+<br>
+
+<p align="center">
+  <img src="docs/images/features_preview.png" alt="Features Preview" width="100%" />
+  <br>
+  <sub>Interactive features including custom time-range filtering, tailing tracking, and dynamic zoom control.</sub>
+</p>
+
+---
+
 ## 🛠️ Tech Stack
 
 Built with a modern, industry-standard desktop development ecosystem:
