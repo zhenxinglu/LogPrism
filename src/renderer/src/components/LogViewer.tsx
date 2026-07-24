@@ -947,32 +947,84 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     const start = startTime ? startTime.format('HH:mm:ss.SSS') : '00:00:00.000'
     const end = endTime ? endTime.format('HH:mm:ss.SSS') : '23:59:59.999'
 
-    const filteredData: LogLineData[] = []
+    const formatTimestamp = (raw: string): string => {
+      const normalized = raw.replace(',', '.')
+      if (normalized.length === 8) {
+        return normalized + '.000'
+      }
+      const parts = normalized.split('.')
+      if (parts.length === 2) {
+        return `${parts[0]}.${parts[1].padEnd(3, '0').slice(0, 3)}`
+      }
+      return normalized
+    }
+
+    interface LogEntry {
+      timestamp: string | null
+      lines: { text: string; originalIndex: number }[]
+    }
+
+    const entries: LogEntry[] = []
+    let currentEntry: LogEntry | null = null
+
+    // Regex to match timestamp at line start
+    const timestampRegex = /^\[?(?:\d{4}[-/]\d{2}[-/]\d{2}[\sT])?(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/
+
     lines.forEach((line, index) => {
-      const lowerLine = line.toLowerCase()
-      // 包含关键词
-      if (targetIncludeArr.length) {
-        const targetLineInclude = isIncludeCaseSensitive ? line : lowerLine
-        if (!targetIncludeArr.some((k) => targetLineInclude.includes(k))) return
-      }
-      // 排除关键词
-      if (targetExcludeArr.length) {
-        const targetLineExclude = isExcludeCaseSensitive ? line : lowerLine
-        if (targetExcludeArr.some((k) => targetLineExclude.includes(k))) return
-      }
-
-      // 时间区间
-      const m = line.match(/^(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)/)
-      let timestamp: string | null = null
+      const m = line.match(timestampRegex)
       if (m) {
-        timestamp = m[1].length === 8 ? m[1] + '.000' : m[1].padEnd(12, '0')
-        if (timestamp < start || timestamp > end) return
+        const ts = formatTimestamp(m[1])
+        currentEntry = {
+          timestamp: ts,
+          lines: [{ text: line, originalIndex: index }]
+        }
+        entries.push(currentEntry)
+      } else {
+        if (currentEntry) {
+          currentEntry.lines.push({ text: line, originalIndex: index })
+        } else {
+          currentEntry = {
+            timestamp: null,
+            lines: [{ text: line, originalIndex: index }]
+          }
+          entries.push(currentEntry)
+        }
+      }
+    })
+
+    const filteredData: LogLineData[] = []
+
+    entries.forEach((entry) => {
+      // 时间区间校验
+      if (entry.timestamp !== null) {
+        if (entry.timestamp < start || entry.timestamp > end) return
       }
 
-      filteredData.push({
-        text: line,
-        originalIndex: index,
-        timestamp: m ? (m[1].length === 8 ? m[1] + '.000' : m[1].padEnd(12, '0')) : null
+      const hasInclude = targetIncludeArr.length > 0
+      const hasExclude = targetExcludeArr.length > 0
+
+      if (hasInclude || hasExclude) {
+        const fullText = entry.lines.map((l) => l.text).join('\n')
+
+        // 包含关键词校验
+        if (hasInclude) {
+          const targetIncludeText = isIncludeCaseSensitive ? fullText : fullText.toLowerCase()
+          if (!targetIncludeArr.some((k) => targetIncludeText.includes(k))) return
+        }
+
+        // 排除关键词校验
+        if (hasExclude) {
+          const targetExcludeText = isExcludeCaseSensitive ? fullText : fullText.toLowerCase()
+          if (targetExcludeArr.some((k) => targetExcludeText.includes(k))) return
+        }
+      }
+
+      entry.lines.forEach((l) => {
+        filteredData.push({
+          text: l.text,
+          originalIndex: l.originalIndex,
+          timestamp: entry.timestamp
+        })
       })
     })
 
