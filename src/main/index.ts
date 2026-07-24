@@ -109,7 +109,7 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
-  // 打开日志文件对话框并读取内容
+  // Open log file dialog and read content
   ipcMain.handle('open-log-file', async (event) => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: 'Open Log File',
@@ -134,7 +134,7 @@ app.whenReady().then(() => {
     }
   })
 
-  // 获取上次打开的文件路径和内容
+  // Get last opened file path and content
   ipcMain.handle('get-last-file', async (event) => {
     try {
       const config = readConfig()
@@ -154,12 +154,12 @@ app.whenReady().then(() => {
     return null
   })
 
-  // 获取所有配置设置
+  // Get all settings configuration
   ipcMain.handle('get-settings', async () => {
     return readConfig()
   })
 
-  // 保存所有配置设置
+  // Save all settings configuration
   ipcMain.handle('save-settings', async (_event, settings) => {
     writeConfig(settings)
     return true
@@ -189,7 +189,7 @@ app.whenReady().then(() => {
     const rawMsg = err == null ? 'Unknown error' : (err.message || String(err))
     let userMsg = rawMsg
 
-    // 针对缺少 latest.yml (404) 错误进行友好的提示化处理
+    // Friendly error handling for missing latest.yml (404)
     if (rawMsg.includes('Cannot find latest.yml') || rawMsg.includes('404')) {
       userMsg = 'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to the GitHub Release artifacts.'
     }

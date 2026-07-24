@@ -918,7 +918,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       return
     }
     const lines = logContent.split(/\r?\n/)
-    // 关键词解析辅助函数：支持 "" 括住带空格的关键词
+    // Helper function for parsing keywords: supports keywords with spaces enclosed in quotes
     const parseKeywords = (input: string): string[] => {
       const keywords: string[] = []
       const regex = /"([^"]+)"|(\S+)/g
@@ -932,7 +932,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       return keywords
     }
 
-    // 关键词处理
+    // Process keywords
     const includeArr = parseKeywords(includeKeywords)
     const excludeArr = parseKeywords(excludeKeywords)
 
@@ -943,7 +943,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       ? excludeArr
       : excludeArr.map((k) => k.toLowerCase())
 
-    // 时间处理
+    // Process time range
     const start = startTime ? startTime.format('HH:mm:ss.SSS') : '00:00:00.000'
     const end = endTime ? endTime.format('HH:mm:ss.SSS') : '23:59:59.999'
 
@@ -995,7 +995,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     const filteredData: LogLineData[] = []
 
     entries.forEach((entry) => {
-      // 时间区间校验
+      // Validate time range
       if (entry.timestamp !== null) {
         if (entry.timestamp < start || entry.timestamp > end) return
       }
@@ -1006,13 +1006,13 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       if (hasInclude || hasExclude) {
         const fullText = entry.lines.map((l) => l.text).join('\n')
 
-        // 包含关键词校验
+        // Validate include keywords
         if (hasInclude) {
           const targetIncludeText = isIncludeCaseSensitive ? fullText : fullText.toLowerCase()
           if (!targetIncludeArr.some((k) => targetIncludeText.includes(k))) return
         }
 
-        // 排除关键词校验
+        // Validate exclude keywords
         if (hasExclude) {
           const targetExcludeText = isExcludeCaseSensitive ? fullText : fullText.toLowerCase()
           if (targetExcludeArr.some((k) => targetExcludeText.includes(k))) return
@@ -1048,6 +1048,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         token: {
           colorPrimary: '#3b82f6',
           colorBgContainer: isDark ? '#18181c' : '#ffffff',
+          colorBgElevated: isDark ? '#27272a' : '#ffffff',
           colorBgLayout: isDark ? '#0f0f11' : '#f5f5f7',
           borderRadius: 8
         }
@@ -1121,17 +1122,19 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           border-left-color: #6d28d9;
         }
         
+        /* Context menu and submenu styles: enhance border outline and hover background to increase contrast against main window */
         .custom-context-menu {
           min-width: 140px;
-          background: ${isDark ? 'rgba(24, 24, 28, 0.95)' : 'rgba(255, 255, 255, 0.98)'};
-          backdrop-filter: blur(12px);
-          border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'};
+          background: ${isDark ? 'rgba(38, 38, 44, 0.96)' : 'rgba(255, 255, 255, 0.98)'};
+          backdrop-filter: blur(16px);
+          border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.15)'};
           border-radius: 8px;
           padding: 4px 0;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+          box-shadow: 0 12px 32px 4px rgba(0, 0, 0, ${isDark ? '0.75' : '0.18'}),
+                      0 0 0 1px ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
           font-size: 13px;
-          color: ${isDark ? '#e4e4e7' : '#1e293b'};
+          color: ${isDark ? '#f4f4f5' : '#1e293b'};
           user-select: none;
         }
         .menu-item {
@@ -1144,21 +1147,21 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           transition: background 0.15s ease, color 0.15s ease;
         }
         .menu-item:hover {
-          background: ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'};
+          background: ${isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.06)'};
           color: ${isDark ? '#ffffff' : '#000000'};
         }
         .menu-item.disabled {
-          color: ${isDark ? '#52525b' : '#a1a1aa'};
+          color: ${isDark ? '#71717a' : '#9ca3af'};
           cursor: not-allowed;
         }
         .menu-item.disabled:hover {
           background: transparent;
-          color: ${isDark ? '#52525b' : '#a1a1aa'};
+          color: ${isDark ? '#71717a' : '#9ca3af'};
         }
         .menu-item.has-submenu::after {
           content: '▶';
           font-size: 9px;
-          color: ${isDark ? '#71717a' : '#94a3b8'};
+          color: ${isDark ? '#a1a1aa' : '#94a3b8'};
           margin-left: 8px;
         }
         .menu-item.has-submenu:hover .submenu {
@@ -1169,12 +1172,13 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           position: absolute;
           top: -4px;
           min-width: 110px;
-          background: ${isDark ? 'rgba(24, 24, 28, 0.98)' : 'rgba(255, 255, 255, 0.98)'};
-          backdrop-filter: blur(12px);
-          border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'};
+          background: ${isDark ? 'rgba(38, 38, 44, 0.98)' : 'rgba(255, 255, 255, 0.98)'};
+          backdrop-filter: blur(16px);
+          border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 0, 0, 0.15)'};
           border-radius: 8px;
           padding: 4px 0;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+          box-shadow: 0 12px 32px 4px rgba(0, 0, 0, ${isDark ? '0.75' : '0.18'}),
+                      0 0 0 1px ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'};
         }
         .submenu-item {
           padding: 8px 12px;
@@ -1183,10 +1187,10 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           align-items: center;
           gap: 8px;
           transition: background 0.15s ease, color 0.15s ease;
-          color: ${isDark ? '#e4e4e7' : '#1e293b'};
+          color: ${isDark ? '#f4f4f5' : '#1e293b'};
         }
         .submenu-item:hover {
-          background: ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)'};
+          background: ${isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.06)'};
           color: ${isDark ? '#ffffff' : '#000000'};
         }
       `}</style>
@@ -1411,7 +1415,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                   <div
                     style={{
                       height: 1,
-                      background: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+                      background: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)',
                       margin: '4px 0'
                     }}
                   />
