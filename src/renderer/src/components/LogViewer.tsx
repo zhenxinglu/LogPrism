@@ -763,7 +763,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   }, [])
 
   const highlightedHtml = useMemo((): string => {
-    if (!logContent) return '请先打开日志文件...'
+    if (!logContent) return 'Please open a log file first...'
 
     if (searchVisible && searchKeyword) {
       const escapedWord = searchKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -879,7 +879,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   )
 
   const renderedLinesHtml = useMemo((): string => {
-    if (!logContent) return '请先打开日志文件...'
+    if (!logContent) return 'Please open a log file first...'
     const htmlLines = highlightedHtml.split('\n')
     return htmlLines
       .map((htmlLine, idx): string => {
@@ -1240,7 +1240,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                       alignItems: 'center',
                       justifyContent: 'center'
                     }}
-                    title={isCollapsed ? '展开 / Expand' : '折叠 / Collapse'}
+                    title={isCollapsed ? 'Expand' : 'Collapse'}
                   />
                 </div>
               </Col>
@@ -1259,7 +1259,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                         type={isIncludeCaseSensitive ? 'primary' : 'default'}
                         onClick={() => setIsIncludeCaseSensitive(!isIncludeCaseSensitive)}
                         style={{ marginLeft: 8, fontWeight: 'bold' }}
-                        title="大小写敏感 / Match Case"
+                        title="Match Case"
                       >
                         Aa
                       </Button>
@@ -1278,7 +1278,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                         type={isExcludeCaseSensitive ? 'primary' : 'default'}
                         onClick={() => setIsExcludeCaseSensitive(!isExcludeCaseSensitive)}
                         style={{ marginLeft: 8, fontWeight: 'bold' }}
-                        title="大小写敏感 / Match Case"
+                        title="Match Case"
                       >
                         Aa
                       </Button>
@@ -1315,7 +1315,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                       <Button
                         type="primary"
                         icon={<ReloadOutlined />}
-                        onClick={() => message.success('过滤结果已是最新的实时内容')}
+                        onClick={() => message.success('Filtered result is up to date')}
                       >
                         Real-time Filtered
                       </Button>

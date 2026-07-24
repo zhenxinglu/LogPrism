@@ -185,10 +185,16 @@ app.whenReady().then(() => {
     mainWindow?.webContents.send('updater:downloaded', info)
   })
   autoUpdater.on('error', (err) => {
-    mainWindow?.webContents.send(
-      'updater:error',
-      err == null ? 'Unknown error' : (err.stack || err.message || err.toString())
-    )
+    console.error('AutoUpdater error:', err)
+    const rawMsg = err == null ? 'Unknown error' : (err.message || String(err))
+    let userMsg = rawMsg
+
+    // 针对缺少 latest.yml (404) 错误进行友好的提示化处理
+    if (rawMsg.includes('Cannot find latest.yml') || rawMsg.includes('404')) {
+      userMsg = 'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to the GitHub Release artifacts.'
+    }
+
+    mainWindow?.webContents.send('updater:error', userMsg)
   })
 
   // Updater IPC handlers
