@@ -3,11 +3,22 @@ import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
 const api = {
-  openLogFile: async (): Promise<string | null> => {
+  openLogFile: async (): Promise<{ filePath: string; content: string; recentFiles: string[] } | null> => {
     return ipcRenderer.invoke('open-log-file')
   },
-  getLastFile: async (): Promise<{ filePath: string; content: string } | null> => {
+  getLastFile: async (): Promise<{ filePath: string | null; content: string | null; recentFiles: string[] } | null> => {
     return ipcRenderer.invoke('get-last-file')
+  },
+  openFileByPath: async (
+    filePath: string
+  ): Promise<{ success: boolean; filePath?: string; content?: string; recentFiles?: string[]; error?: string }> => {
+    return ipcRenderer.invoke('open-file-by-path', filePath)
+  },
+  getRecentFiles: async (): Promise<string[]> => {
+    return ipcRenderer.invoke('get-recent-files')
+  },
+  clearRecentFiles: async (): Promise<boolean> => {
+    return ipcRenderer.invoke('clear-recent-files')
   },
   onLogFileChanged: (callback: (content: string) => void): (() => void) => {
     const listener = (_event: any, content: string): void => callback(content)

@@ -23,7 +23,10 @@
 - [x] **时间区间过滤（Time Range）**：
   - [x] 支持指定开始时间和结束时间（精确到毫秒：`HH:mm:ss.SSS`）。
   - [x] 自动匹配并提取日志行首的时间戳进行区间判定（支持 `HH:mm:ss` 与 `HH:mm:ss.SSS` 格式的行首时间戳）。
-  - [x] 对于不带时间戳 of the log lines，默认不做时间过滤，直接保留。
+  - [x] 对于不带时间戳的日志行，默认不做时间过滤，直接保留。
+- [x] **跨多行日志与异常堆栈智能解析（Multi-Line Log & Exception Handling）**：
+  - [x] 自动匹配以时间戳开头的行作为日志条目的起始，并将随后的无时间戳多行日志（如 Java、Node.js 异常 Stack Trace 堆栈跟踪）归类合并为同一条独立日志记录（Log Entry）。
+  - [x] 包含/排除关键词过滤与时间区间过滤均作用于包含堆栈的整个日志条目，确保过滤时不会破坏或截断多行异常堆栈。
 
 ## 3. UI 界面与交互体验
 
@@ -39,8 +42,8 @@
   - [x] 支持自动换行与不换行切换。
 - [x] **日志字体大小缩放**：在日志显示窗口内，支持按住 `Ctrl` 键并滚动鼠标中键（Wheel）对日志字体大小进行缩放（范围限制在 10px 到 40px 之间）。缩放后的字体大小会自动记忆持久化，下次启动应用时自动恢复。
 - [x] **底部状态栏控制与反馈**：
-  - [x] 左侧显示当前匹配过滤的日志行数（例如 `"Found X matches"`）。
-  - [x] 右侧提供 **Word Wrap** 复选框（Checkbox）和 **Theme Style**（Dark/Light）单选按钮。
+  - [x] 左侧显示版本号及当前匹配过滤的日志行数（例如 `v1.1.0` / `"Found X matches"`），并在外部日志变动时展示带有呼吸灯特效的更新时间提示（例如 `File updates on 16:40:12 (5 seconds ago)`）。
+  - [x] 右侧提供 **Check for Updates**、**Tail Mode**、**Word Wrap** 复选框（Checkbox）和 **Theme Style**（Dark/Light）单选按钮。
   - [x] Word Wrap 勾选时启用自动换行（`pre-wrap`），未勾选时显示原始排版（`pre`）。
   - [x] 换行与主题配置均会自动持久化，并在应用重新打开时自动恢复。
 - [x] **追加追踪模式（Tail Mode / Auto Scroll to Bottom）**：
@@ -54,6 +57,20 @@
   - [x] 支持一键设置当前行时间为 "Time Range" 的开始时间（Set as Start Time）或结束时间（Set as End Time），提取后自动实时重新过滤。
   - [x] 支持通过二级子菜单将当前行以特殊颜色高亮标记（包含 Blue, Red, Green, Orange, Purple 五种预置色及 Clear Mark 选项），背景颜色与菜单选项保持一致，并自动搭配高对比度白色文字。
   - [x] 智能细节：对不含时间戳的行，自动禁用并置灰时间设置选项；菜单会在滚动日志、点击空白处、窗口失去焦点或按 `Escape` 键时自动隐藏；高亮标记不受后续过滤条件改变的影响，并在加载新文件时自动重置。
+- [x] **快捷键页内文本搜索（In-Page Search Bar / Ctrl+F / Cmd+F / F3）**：
+  - [x] 支持通过快捷键 `Ctrl + F`（或 `Cmd + F`）唤出悬浮在右上角的高亮玻璃拟态搜索框。
+  - [x] 输入检索词后自动进行全局匹配，并实时呈现匹配项总数与当前聚焦序号（如 `1/12`）。
+  - [x] 支持按 `F3` / `Enter` 顺序定位到下一个匹配项，按 `Shift + F3` / `Shift + Enter` 定位到上一个匹配项，并自动平滑滚动视图到当前匹配所在位置。
+  - [x] 当前匹配项提供高对比度橙色高亮显示，支持通过 `Esc` 键或关闭按钮迅速退出搜索状态。
+- [x] **双击词汇高亮（Double-Click Word Highlighting）**：
+  - [x] 在日志内容视图中双击任意单个词汇，即可自动高亮标注当前所有渲染日志中完全相同的词汇。
+- [x] **应用自动更新与版本管理（Auto-Update & Version Check）**：
+  - [x] 集成 `electron-updater` 模块，支持与 GitHub Release 联动进行应用升级检测。
+  - [x] 底部状态栏左侧常驻显示当前版本号（如 `v1.1.0`），右侧提供 **Check for Updates** 触发入口。
+  - [x] 提供交互式更新模态弹窗（Modal），涵盖新版本 Changelog 显示、下载进度条（Progress bar）及一键 "Restart and Install" 重启安装体验。
+  - [x] 包含完善的错误捕捉与友好提示（如缺少 GitHub `latest.yml` 时的针对性提示）。
+- [x] **界面全英文标准化（Full English UI Standard）**：
+  - [x] 应用的所有控件、按钮、标签、右键菜单、操作提示及弹窗说明全面采用英文表达，确保用户界面风格统一规范。
 
 ## 4. 规划中与待实现功能（新 Feature 候选列表）
 
@@ -66,8 +83,9 @@
 - [ ] **正则表达式过滤支持（Regex Filtering）**：
   - 在 Include/Exclude Keywords 输入框旁，添加正则表达式开关（Regex）。
   - 启用后，将输入内容作为正则表达式解析和计算，支持更复杂的匹配逻辑。
-- [ ] **自定义时间格式解析（Custom Timestamp Regex）**：
-  - 允许在设置中配置自定义的时间戳提取正则表达式，支持类似 `YYYY-MM-DD HH:mm:ss`、ISO 8601 或 Epoch 时间戳。
+- [x] **自定义时间格式解析与自动检测（Custom Timestamp Format Auto-Detection & Parsing）**：
+  - 自动检测打开的日志文件所使用的日期格式（支持 `YYYY-MM-DD HH:mm:ss.SSS`、`ISO 8601`、`DD/MMM/YYYY:HH:mm:ss`、`MMM DD HH:mm:ss`、`HH:mm:ss` 等格式），并使用该格式智能分析过滤日志。
+  - 在 "Time Range:" 控制栏右侧实时动态展示系统检测到的日志时间格式 Badge/Tag，并支持手动切换格式。
 
 ### 视图与导航交互优化
 
@@ -76,10 +94,15 @@
 
 ### 数据管理与协作
 
-- [ ] **最近打开文件历史（Recent Files History）**：
+- [x] **最近打开文件历史（Recent Files History）**：
   - 记录最近打开的 5-10 个日志文件路径。
   - 提供快速切换的下拉列表，便于多文件轮流排查。
 - [ ] **导出过滤后的日志（Export Filtered Logs）**：
   - 提供导出/另存为功能，将当前已经过过滤条件筛选后的日志行保存为本地新文件。
-- [ ] **日志书签与标记（Bookmarks & Pins）**：
-  - 允许点击行首将某行日志标记为书签，并在侧边书签栏统一管理与跳转。
+- [x] **日志书签与标记（Bookmarks & Pins）**：
+  - [x] 允许在日志视图中通过点击行首 📍 按钮或在右键快捷菜单中选择 "Pin Line" 将任意日志行添加为书签。
+  - [x] 视图中已设为书签的日志行会高亮呈现黄色左侧边框与 📌 图标。
+  - [x] 提供侧边 "Bookmarks & Pins" 管理抽屉（Drawer），实时显示书签列表（含行号 `#Line`、时间戳和文本预览）。
+  - [x] 支持在抽屉中点击任意书签平滑跳转并高亮闪烁定位至对应日志行，并提供单个删除与一键清空（Clear All）功能。
+  - [x] 支持在侧边抽屉（点击 ✏️ 编辑图标）或右键菜单（"Rename Bookmark"）中为书签命名/添加自定义备注（Bookmark Naming/Labels），设置后以 🏷️ 标签形式在列表和鼠标悬浮提示中优先直观展示。
+

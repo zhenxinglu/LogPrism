@@ -96,6 +96,16 @@ app.whenReady().then(() => {
     }
   }
 
+  function updateRecentFiles(filePath: string): string[] {
+    const config = readConfig()
+    const currentList: string[] = Array.isArray(config.recentFiles) ? config.recentFiles : []
+    const filtered = currentList.filter((p) => p !== filePath)
+    filtered.unshift(filePath)
+    const updated = filtered.slice(0, 10)
+    writeConfig({ lastFilePath: filePath, recentFiles: updated })
+    return updated
+  }
+
   // Set app user model id for windows
   electronApp.setAppUserModelId('com.electron')
 
@@ -121,14 +131,15 @@ app.whenReady().then(() => {
     })
     if (canceled || filePaths.length === 0) return null
     try {
-      const content = readFileSync(filePaths[0], 'utf-8')
+      const filePath = filePaths[0]
+      const content = readFileSync(filePath, 'utf-8')
       const window = BrowserWindow.fromWebContents(event.sender)
       if (window) {
-        window.setTitle(`LogPrism - ${filePaths[0]}`)
+        window.setTitle(`LogPrism - ${filePath}`)
       }
-      writeConfig({ lastFilePath: filePaths[0] })
-      startWatchingFile(filePaths[0], event.sender)
-      return content
+      const recentFiles = updateRecentFiles(filePath)
+      startWatchingFile(filePath, event.sender)
+      return { filePath, content, recentFiles }
     } catch (e) {
       return null
     }
@@ -139,6 +150,7 @@ app.whenReady().then(() => {
     try {
       const config = readConfig()
       const lastFilePath = config.lastFilePath
+      const recentFiles: string[] = Array.isArray(config.recentFiles) ? config.recentFiles : []
       if (lastFilePath && existsSync(lastFilePath)) {
         const content = readFileSync(lastFilePath, 'utf-8')
         const window = BrowserWindow.fromWebContents(event.sender)
@@ -146,12 +158,44 @@ app.whenReady().then(() => {
           window.setTitle(`LogPrism - ${lastFilePath}`)
         }
         startWatchingFile(lastFilePath, event.sender)
-        return { filePath: lastFilePath, content }
+        return { filePath: lastFilePath, content, recentFiles }
       }
+      return { filePath: null, content: null, recentFiles }
     } catch (e) {
       console.error('Failed to load last config:', e)
     }
     return null
+  })
+
+  // Open a log file by path directly
+  ipcMain.handle('open-file-by-path', async (event, filePath: string) => {
+    try {
+      if (!existsSync(filePath)) {
+        return { success: false, error: 'File does not exist' }
+      }
+      const content = readFileSync(filePath, 'utf-8')
+      const window = BrowserWindow.fromWebContents(event.sender)
+      if (window) {
+        window.setTitle(`LogPrism - ${filePath}`)
+      }
+      const recentFiles = updateRecentFiles(filePath)
+      startWatchingFile(filePath, event.sender)
+      return { success: true, filePath, content, recentFiles }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // Get recent files list
+  ipcMain.handle('get-recent-files', async () => {
+    const config = readConfig()
+    return Array.isArray(config.recentFiles) ? config.recentFiles : []
+  })
+
+  // Clear recent files list
+  ipcMain.handle('clear-recent-files', async () => {
+    writeConfig({ recentFiles: [] })
+    return true
   })
 
   // Get all settings configuration

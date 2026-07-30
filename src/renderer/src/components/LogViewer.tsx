@@ -15,15 +15,27 @@ import {
   Checkbox,
   Modal,
   Progress,
-  Spin
+  Spin,
+  Dropdown,
+  Drawer,
+  Empty,
+  Tag,
+  type MenuProps
 } from 'antd'
 import {
   FileOutlined,
-  ReloadOutlined,
   DownOutlined,
   UpOutlined,
   RightOutlined,
-  CloseOutlined
+  CloseOutlined,
+  HistoryOutlined,
+  CheckOutlined,
+  DeleteOutlined,
+  PushpinOutlined,
+  PushpinFilled,
+  EditOutlined,
+  TagOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 
@@ -36,6 +48,13 @@ interface LogLineData {
   text: string
   originalIndex: number
   timestamp: string | null
+}
+
+interface BookmarkData {
+  originalIndex: number
+  text: string
+  timestamp: string | null
+  name?: string
 }
 
 const PRESET_COLORS = [
@@ -58,6 +77,146 @@ const escapeHtml = (text: string): string => {
     .replace(/'/g, '&#039;')
 }
 
+export interface TimestampFormat {
+  id: string
+  name: string
+  example: string
+  regex: RegExp
+  extractTime: (matchStr: string, fullMatch: string) => string | null
+}
+
+const formatTimestamp = (raw: string): string => {
+  const normalized = raw.replace(',', '.')
+  if (normalized.length === 8) {
+    return normalized + '.000'
+  }
+  const parts = normalized.split('.')
+  if (parts.length === 2) {
+    return `${parts[0]}.${parts[1].padEnd(3, '0').slice(0, 3)}`
+  }
+  return normalized
+}
+
+const TIMESTAMP_FORMATS: TimestampFormat[] = [
+  {
+    id: 'iso8601',
+    name: 'ISO 8601',
+    example: '2026-07-30T08:58:24.123Z',
+    regex: /^\[?(\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)(?:Z|[+-]\d{2}:?\d{2})?)\]?/,
+    extractTime: (_matchStr, fullMatch) => {
+      const m = fullMatch.match(/T(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
+      return m ? formatTimestamp(m[1]) : null
+    }
+  },
+  {
+    id: 'yyyy-mm-dd-ms',
+    name: 'YYYY-MM-DD HH:mm:ss.SSS',
+    example: '2026-07-30 08:58:24.123',
+    regex: /^\[?(\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?))\]?/,
+    extractTime: (_matchStr, fullMatch) => {
+      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
+      return m ? formatTimestamp(m[1]) : null
+    }
+  },
+  {
+    id: 'yyyy-mm-dd',
+    name: 'YYYY-MM-DD HH:mm:ss',
+    example: '2026-07-30 08:58:24',
+    regex: /^\[?(\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}:\d{2}))\]?/,
+    extractTime: (_matchStr, fullMatch) => {
+      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2})/)
+      return m ? formatTimestamp(m[1]) : null
+    }
+  },
+  {
+    id: 'yyyy/mm/dd-ms',
+    name: 'YYYY/MM/DD HH:mm:ss.SSS',
+    example: '2026/07/30 08:58:24.123',
+    regex: /^\[?(\d{4}\/\d{2}\/\d{2}\s+(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?))\]?/,
+    extractTime: (_matchStr, fullMatch) => {
+      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
+      return m ? formatTimestamp(m[1]) : null
+    }
+  },
+  {
+    id: 'yyyy/mm/dd',
+    name: 'YYYY/MM/DD HH:mm:ss',
+    example: '2026/07/30 08:58:24',
+    regex: /^\[?(\d{4}\/\d{2}\/\d{2}\s+(\d{2}:\d{2}:\d{2}))\]?/,
+    extractTime: (_matchStr, fullMatch) => {
+      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2})/)
+      return m ? formatTimestamp(m[1]) : null
+    }
+  },
+  {
+    id: 'clf',
+    name: 'DD/MMM/YYYY:HH:mm:ss',
+    example: '30/Jul/2026:08:58:24',
+    regex: /^\[?(\d{2}\/[A-Za-z]{3}\/\d{4}:(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)(?:\s+[+-]\d{4})?)\]?/,
+    extractTime: (_matchStr, fullMatch) => {
+      const m = fullMatch.match(/:(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
+      return m ? formatTimestamp(m[1]) : null
+    }
+  },
+  {
+    id: 'syslog',
+    name: 'MMM DD HH:mm:ss',
+    example: 'Jul 30 08:58:24',
+    regex: /^\[?([A-Za-z]{3}\s+\d{1,2}\s+(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?))\]?/,
+    extractTime: (_matchStr, fullMatch) => {
+      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
+      return m ? formatTimestamp(m[1]) : null
+    }
+  },
+  {
+    id: 'hh-mm-ss-ms',
+    name: 'HH:mm:ss.SSS',
+    example: '08:58:24.123',
+    regex: /^\[?(\d{2}:\d{2}:\d{2}[.,]\d{1,3})\]?/,
+    extractTime: (matchStr) => formatTimestamp(matchStr)
+  },
+  {
+    id: 'hh-mm-ss',
+    name: 'HH:mm:ss',
+    example: '08:58:24',
+    regex: /^\[?(\d{2}:\d{2}:\d{2})\]?/,
+    extractTime: (matchStr) => formatTimestamp(matchStr)
+  }
+]
+
+const detectTimestampFormat = (content: string): TimestampFormat | null => {
+  if (!content) return null
+  const lines = content.split(/\r?\n/).slice(0, 200)
+
+  const counts = new Map<string, number>()
+  for (const fmt of TIMESTAMP_FORMATS) {
+    counts.set(fmt.id, 0)
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    for (const fmt of TIMESTAMP_FORMATS) {
+      if (fmt.regex.test(trimmed)) {
+        counts.set(fmt.id, (counts.get(fmt.id) || 0) + 1)
+        break
+      }
+    }
+  }
+
+  let bestFmt: TimestampFormat | null = null
+  let maxCount = 0
+  for (const fmt of TIMESTAMP_FORMATS) {
+    const count = counts.get(fmt.id) || 0
+    if (count > maxCount) {
+      maxCount = count
+      bestFmt = fmt
+    }
+  }
+
+  return bestFmt
+}
+
 const LogViewer: React.FC<LogViewerProps> = () => {
   const [includeKeywords, setIncludeKeywords] = useState('')
   const [excludeKeywords, setExcludeKeywords] = useState('')
@@ -66,6 +225,14 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const [startTime, setStartTime] = useState<Dayjs | null>(defaultStart)
   const [endTime, setEndTime] = useState<Dayjs | null>(defaultEnd)
   const [logContent, setLogContent] = useState('')
+  const [detectedFormat, setDetectedFormat] = useState<TimestampFormat | null>(null)
+  const [selectedFormatId, setSelectedFormatId] = useState<string>('auto')
+
+  const activeFormat = useMemo((): TimestampFormat | null => {
+    if (selectedFormatId === 'auto') return detectedFormat
+    return TIMESTAMP_FORMATS.find((f) => f.id === selectedFormatId) || null
+  }, [selectedFormatId, detectedFormat])
+
   const [filteredContent, setFilteredContent] = useState('')
   const [matchCount, setMatchCount] = useState(0)
   const [updateTime, setUpdateTime] = useState<string | null>(null)
@@ -82,6 +249,8 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const [tailMode, setTailMode] = useState<boolean>(true)
   const [isTailSuspended, setIsTailSuspended] = useState<boolean>(false)
   const [hasNewLogs, setHasNewLogs] = useState<boolean>(false)
+  const [currentFilePath, setCurrentFilePath] = useState<string | null>(null)
+  const [recentFiles, setRecentFiles] = useState<string[]>([])
   const isUpdatingFromFileWatcherRef = useRef(false)
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false)
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false)
@@ -191,6 +360,9 @@ const LogViewer: React.FC<LogViewerProps> = () => {
 
   const [filteredLines, setFilteredLines] = useState<LogLineData[]>([])
   const [markedLines, setMarkedLines] = useState<Record<number, string>>({})
+  const [bookmarkedLines, setBookmarkedLines] = useState<Record<number, BookmarkData>>({})
+  const [bookmarksDrawerOpen, setBookmarksDrawerOpen] = useState(false)
+  const [targetFlashLine, setTargetFlashLine] = useState<number | null>(null)
   const [contextMenu, setContextMenu] = useState<{
     x: number
     y: number
@@ -198,6 +370,96 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     timestamp: string | null
     lineText: string
   } | null>(null)
+
+  const handleToggleBookmark = useCallback(
+    (originalIndex: number, text: string, timestamp: string | null) => {
+      const isBookmarked = !!bookmarkedLines[originalIndex]
+      if (isBookmarked) {
+        setBookmarkedLines((prev) => {
+          const updated = { ...prev }
+          delete updated[originalIndex]
+          return updated
+        })
+        message.info(`Removed bookmark for Line #${originalIndex + 1}`)
+      } else {
+        setBookmarkedLines((prev) => ({
+          ...prev,
+          [originalIndex]: { originalIndex, text, timestamp }
+        }))
+        message.success(`Bookmarked Line #${originalIndex + 1}`)
+      }
+    },
+    [bookmarkedLines]
+  )
+
+  const handleRemoveBookmark = useCallback((originalIndex: number) => {
+    setBookmarkedLines((prev) => {
+      const updated = { ...prev }
+      delete updated[originalIndex]
+      return updated
+    })
+  }, [])
+
+  const handleClearAllBookmarks = useCallback(() => {
+    setBookmarkedLines({})
+    message.success('Cleared all bookmarks')
+  }, [])
+
+  const handleJumpToBookmark = useCallback((originalIndex: number) => {
+    const container = logContainerRef.current
+    if (!container) return
+    const lineEl = container.querySelector(`[data-original-index="${originalIndex}"]`)
+    if (lineEl) {
+      lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setTargetFlashLine(originalIndex)
+      setTimeout(() => {
+        setTargetFlashLine(null)
+      }, 3000)
+    } else {
+      message.warning(`Line #${originalIndex + 1} is currently hidden by active filters`)
+    }
+  }, [])
+
+  const [editingBookmarkIndex, setEditingBookmarkIndex] = useState<number | null>(null)
+  const [editingBookmarkName, setEditingBookmarkName] = useState<string>('')
+  const [renameModalVisible, setRenameModalVisible] = useState(false)
+  const [renameTargetIndex, setRenameTargetIndex] = useState<number | null>(null)
+  const [renameInputVal, setRenameInputVal] = useState<string>('')
+
+  const handleSaveBookmarkName = useCallback((originalIndex: number, newName: string) => {
+    setBookmarkedLines((prev) => {
+      if (!prev[originalIndex]) return prev
+      const updated = { ...prev }
+      const trimmed = newName.trim()
+      updated[originalIndex] = {
+        ...updated[originalIndex],
+        name: trimmed ? trimmed : undefined
+      }
+      return updated
+    })
+    setEditingBookmarkIndex(null)
+    setEditingBookmarkName('')
+    message.success('Bookmark name updated')
+  }, [])
+
+  const handleOpenRenameModal = useCallback(
+    (originalIndex: number) => {
+      const bm = bookmarkedLines[originalIndex]
+      setRenameTargetIndex(originalIndex)
+      setRenameInputVal(bm?.name || '')
+      setRenameModalVisible(true)
+    },
+    [bookmarkedLines]
+  )
+
+  const handleConfirmRenameModal = useCallback(() => {
+    if (renameTargetIndex !== null) {
+      handleSaveBookmarkName(renameTargetIndex, renameInputVal)
+      setRenameModalVisible(false)
+      setRenameTargetIndex(null)
+      setRenameInputVal('')
+    }
+  }, [renameTargetIndex, renameInputVal, handleSaveBookmarkName])
 
   useEffect(() => {
     searchVisibleRef.current = searchVisible
@@ -389,9 +651,15 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     const autoLoadLastFile = async () => {
       const res = await window.api.getLastFile()
       if (res) {
-        setIsTailSuspended(false)
-        setHasNewLogs(false)
-        setLogContent(res.content)
+        if (res.recentFiles) {
+          setRecentFiles(res.recentFiles)
+        }
+        if (res.filePath && res.content !== null) {
+          setCurrentFilePath(res.filePath)
+          setIsTailSuspended(false)
+          setHasNewLogs(false)
+          setLogContent(res.content)
+        }
       }
     }
     autoLoadLastFile()
@@ -409,6 +677,15 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (!logContent) {
+      setDetectedFormat(null)
+      return
+    }
+    const detected = detectTimestampFormat(logContent)
+    setDetectedFormat(detected)
+  }, [logContent])
 
   useEffect(() => {
     if (!lastUpdateTimestamp) {
@@ -438,19 +715,116 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   }, [lastUpdateTimestamp])
 
   const handleOpenLogFile = async (): Promise<void> => {
-    const content = await window.api.openLogFile()
-    if (content !== null) {
+    const res = await window.api.openLogFile()
+    if (res && res.content !== null) {
+      setCurrentFilePath(res.filePath)
+      setRecentFiles(res.recentFiles || [])
       setIsTailSuspended(false)
       setHasNewLogs(false)
-      setLogContent(content)
+      setLogContent(res.content)
       setFilteredContent('')
       setMatchCount(0)
       setUpdateTime(null)
       setLastUpdateTimestamp(null)
       setMarkedLines({})
+      setBookmarkedLines({})
       setContextMenu(null)
     }
   }
+
+  const handleSelectRecentFile = async (filePath: string): Promise<void> => {
+    if (filePath === currentFilePath) return
+    const res = await window.api.openFileByPath(filePath)
+    if (res.success && res.content !== undefined) {
+      setCurrentFilePath(res.filePath || filePath)
+      if (res.recentFiles) {
+        setRecentFiles(res.recentFiles)
+      }
+      setIsTailSuspended(false)
+      setHasNewLogs(false)
+      setLogContent(res.content)
+      setFilteredContent('')
+      setMatchCount(0)
+      setUpdateTime(null)
+      setLastUpdateTimestamp(null)
+      setMarkedLines({})
+      setBookmarkedLines({})
+      setContextMenu(null)
+    } else {
+      message.error(res.error || 'Failed to open recent file. File may no longer exist.')
+      const updatedList = await window.api.getRecentFiles()
+      setRecentFiles(updatedList)
+    }
+  }
+
+  const handleClearRecentFiles = async (): Promise<void> => {
+    await window.api.clearRecentFiles()
+    setRecentFiles([])
+    message.success('Recent files history cleared')
+  }
+
+  const recentFilesMenuItems: MenuProps['items'] = useMemo(() => {
+    if (recentFiles.length === 0) {
+      return [
+        {
+          key: 'no-recent',
+          disabled: true,
+          label: <Text type="secondary">No recent files</Text>
+        }
+      ]
+    }
+
+    const items: MenuProps['items'] = recentFiles.map((filePath) => {
+      const fileName = filePath.split(/[/\\]/).pop() || filePath
+      const isActive = filePath === currentFilePath
+
+      return {
+        key: filePath,
+        onClick: () => handleSelectRecentFile(filePath),
+        label: (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              maxWidth: 400
+            }}
+            title={filePath}
+          >
+            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontWeight: isActive ? 'bold' : 'normal', fontSize: 13 }}>
+                {fileName}
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: isDark ? '#94a3b8' : '#64748b',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                {filePath}
+              </div>
+            </div>
+            {isActive && <CheckOutlined style={{ color: '#3b82f6', fontSize: 12 }} />}
+          </div>
+        )
+      }
+    })
+
+    items.push({ type: 'divider' })
+    items.push({
+      key: 'clear-history',
+      danger: true,
+      icon: <DeleteOutlined />,
+      label: 'Clear History',
+      onClick: handleClearRecentFiles
+    })
+
+    return items
+  }, [recentFiles, currentFilePath, isDark])
 
   const triggerSearch = (query: string) => {
     if (query.trim() === '') {
@@ -741,6 +1115,26 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     }
   }
 
+  const handlePreClick = useCallback(
+    (e: React.MouseEvent<HTMLPreElement>): void => {
+      const target = e.target as HTMLElement
+      const btn = target.closest('.log-bookmark-btn')
+      if (btn) {
+        e.stopPropagation()
+        const originalIndexStr = btn.getAttribute('data-bookmark-index')
+        if (originalIndexStr !== null) {
+          const idx = parseInt(originalIndexStr, 10)
+          const lineData = filteredLines.find((l) => l.originalIndex === idx)
+          const lineEl = btn.closest('.log-line')
+          const text = lineData ? lineData.text : lineEl?.textContent?.replace(/^[📌📍]\s*/, '') || ''
+          const ts = lineData ? lineData.timestamp : lineEl?.getAttribute('data-timestamp') || null
+          handleToggleBookmark(idx, text, ts)
+        }
+      }
+    },
+    [filteredLines, handleToggleBookmark]
+  )
+
   useEffect(() => {
     const handleDocumentClick = (): void => {
       setContextMenu(null)
@@ -893,10 +1287,26 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         const markColor = markedLines[originalIndex]
         const markedClass = markColor ? ` marked-${markColor}` : ''
 
-        return `<div class="log-line${markedClass}" data-original-index="${originalIndex}" data-timestamp="${timestamp || ''}">${htmlLine || ' '}</div>`
+        // Determine if this line is bookmarked
+        const isBookmarked = !!bookmarkedLines[originalIndex]
+        const bookmarkData = bookmarkedLines[originalIndex]
+        const bookmarkedClass = isBookmarked ? ' is-bookmarked' : ''
+
+        // Determine if this line is flashing
+        const flashClass = targetFlashLine === originalIndex ? ' flash-highlight' : ''
+
+        const bookmarkTitle = isBookmarked
+          ? bookmarkData?.name
+            ? `Bookmark: ${bookmarkData.name}`
+            : 'Remove Bookmark (Pin)'
+          : 'Bookmark Line (Pin)'
+
+        const bookmarkBtn = `<span class="log-bookmark-btn${isBookmarked ? ' active' : ''}" title="${escapeHtml(bookmarkTitle)}" data-bookmark-index="${originalIndex}">${isBookmarked ? '📌' : '📍'}</span>`
+
+        return `<div class="log-line${markedClass}${bookmarkedClass}${flashClass}" data-original-index="${originalIndex}" data-timestamp="${timestamp || ''}">${bookmarkBtn}${htmlLine || ' '}</div>`
       })
       .join('')
-  }, [highlightedHtml, filteredLines, markedLines, logContent])
+  }, [highlightedHtml, filteredLines, markedLines, bookmarkedLines, targetFlashLine, logContent])
 
   // Update innerHTML directly (bypassing React reconcile) while preserving selection
   useEffect(() => {
@@ -967,13 +1377,22 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     const entries: LogEntry[] = []
     let currentEntry: LogEntry | null = null
 
-    // Regex to match timestamp at line start
-    const timestampRegex = /^\[?(?:\d{4}[-/]\d{2}[-/]\d{2}[\sT])?(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/
-
     lines.forEach((line, index) => {
-      const m = line.match(timestampRegex)
-      if (m) {
-        const ts = formatTimestamp(m[1])
+      let ts: string | null = null
+      if (activeFormat) {
+        const m = line.match(activeFormat.regex)
+        if (m) {
+          ts = activeFormat.extractTime(m[1] || m[0], m[0])
+        }
+      } else {
+        const fallbackRegex = /^\[?(?:\d{4}[-/]\d{2}[-/]\d{2}[\sT])?(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/
+        const m = line.match(fallbackRegex)
+        if (m) {
+          ts = formatTimestamp(m[1])
+        }
+      }
+
+      if (ts) {
         currentEntry = {
           timestamp: ts,
           lines: [{ text: line, originalIndex: index }]
@@ -1038,7 +1457,8 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     isIncludeCaseSensitive,
     isExcludeCaseSensitive,
     startTime,
-    endTime
+    endTime,
+    activeFormat
   ])
 
   return (
@@ -1120,6 +1540,52 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           background-color: #8b5cf6;
           color: #ffffff;
           border-left-color: #6d28d9;
+        }
+        @keyframes flashBg {
+          0% { background-color: ${isDark ? 'rgba(234, 179, 8, 0.75)' : 'rgba(253, 224, 71, 0.95)'}; }
+          25% { background-color: ${isDark ? 'rgba(234, 179, 8, 0.2)' : 'rgba(254, 240, 138, 0.4)'}; }
+          50% { background-color: ${isDark ? 'rgba(234, 179, 8, 0.75)' : 'rgba(253, 224, 71, 0.95)'}; }
+          75% { background-color: ${isDark ? 'rgba(234, 179, 8, 0.35)' : 'rgba(254, 240, 138, 0.5)'}; }
+          100% { background-color: transparent; }
+        }
+        .log-line.flash-highlight {
+          animation: flashBg 3s ease-out;
+        }
+        .log-bookmark-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 18px;
+          height: 18px;
+          margin-right: 6px;
+          cursor: pointer;
+          opacity: 0.25;
+          transition: opacity 0.15s ease, transform 0.15s ease;
+          user-select: none;
+          font-size: 11px;
+          vertical-align: middle;
+        }
+        .log-line:hover .log-bookmark-btn {
+          opacity: 0.7;
+        }
+        .log-bookmark-btn:hover {
+          opacity: 1 !important;
+          transform: scale(1.25);
+        }
+        .log-bookmark-btn.active {
+          opacity: 1;
+        }
+        .log-line.is-bookmarked {
+          border-left: 3px solid ${isDark ? '#eab308' : '#eab308'} !important;
+          background-color: ${isDark ? 'rgba(234, 179, 8, 0.1)' : 'rgba(234, 179, 8, 0.08)'};
+        }
+        .bookmark-item {
+          transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+        .bookmark-item:hover {
+          border-color: ${isDark ? 'rgba(234, 179, 8, 0.5)' : '#fde047'} !important;
+          box-shadow: ${isDark ? '0 4px 12px rgba(0,0,0,0.4)' : '0 2px 8px rgba(0,0,0,0.06)'};
+          transform: translateY(-1px);
         }
         
         /* Context menu and submenu styles: enhance border outline and hover background to increase contrast against main window */
@@ -1289,16 +1755,16 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                     </div>
                   </Col>
                   <Col span={24}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0 8px' }}>
                       <Text style={styles.labelText}>Time Range:</Text>
                       <DatePicker.TimePicker
                         value={startTime}
                         onChange={setStartTime}
                         format="HH:mm:ss.SSS"
                         placeholder="00:00:00.000"
-                        style={{ width: 150, marginLeft: 8 }}
+                        style={{ width: 150 }}
                       />
-                      <span style={{ margin: '0 12px', color: isDark ? '#94a3b8' : '#64748b' }}>
+                      <span style={{ margin: '0 4px', color: isDark ? '#94a3b8' : '#64748b' }}>
                         to
                       </span>
                       <DatePicker.TimePicker
@@ -1308,26 +1774,69 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                         placeholder="23:59:59.999"
                         style={{ width: 150 }}
                       />
+                      <div
+                        style={{
+                          marginLeft: 12,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
+                          Detected Format:
+                        </Text>
+                        <Dropdown
+                          menu={{
+                            items: [
+                              {
+                                key: 'auto',
+                                label: (
+                                  <span>
+                                    <b>Auto Detect</b>{' '}
+                                    {detectedFormat
+                                      ? `(${detectedFormat.name})`
+                                      : '(No format detected)'}
+                                  </span>
+                                ),
+                                onClick: () => setSelectedFormatId('auto')
+                              },
+                              { type: 'divider' },
+                              ...TIMESTAMP_FORMATS.map((fmt) => ({
+                                key: fmt.id,
+                                label: (
+                                  <span>
+                                    {fmt.name}{' '}
+                                    <Text type="secondary" style={{ fontSize: 11 }}>
+                                      e.g. {fmt.example}
+                                    </Text>
+                                  </span>
+                                ),
+                                onClick: () => setSelectedFormatId(fmt.id)
+                              }))
+                            ],
+                            selectedKeys: [selectedFormatId]
+                          }}
+                          trigger={['click']}
+                        >
+                          <Tag
+                            color={activeFormat ? 'blue' : 'default'}
+                            style={{
+                              cursor: 'pointer',
+                              margin: 0,
+                              padding: '2px 8px',
+                              fontSize: 12
+                            }}
+                          >
+                            <ClockCircleOutlined style={{ marginRight: 4 }} />
+                            {activeFormat ? activeFormat.name : 'Not Detected'}
+                            {selectedFormatId !== 'auto' && ' (Manual)'}
+                          </Tag>
+                        </Dropdown>
+                      </div>
                     </div>
                   </Col>
 
-                  <Col span={24}>
-                    <b style={styles.headerText}>Operations</b>
-                  </Col>
-                  <Col span={24}>
-                    <Space size="middle">
-                      <Button
-                        type="primary"
-                        icon={<ReloadOutlined />}
-                        onClick={() => message.success('Filtered result is up to date')}
-                      >
-                        Real-time Filtered
-                      </Button>
-                      <Button icon={<FileOutlined />} onClick={handleOpenLogFile}>
-                        Open Log File
-                      </Button>
-                    </Space>
-                  </Col>
+
                 </>
               )}
             </Row>
@@ -1335,6 +1844,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           <div ref={logContainerRef} style={styles.logContainer} onScroll={handleScroll}>
             <pre
               ref={preRef}
+              onClick={handlePreClick}
               onDoubleClick={handleDoubleClick}
               onContextMenu={handleContextMenu}
               style={{
@@ -1354,6 +1864,38 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 zIndex: 10000
               }}
             >
+              <div
+                className="menu-item"
+                onClick={() => {
+                  handleToggleBookmark(
+                    contextMenu.originalIndex,
+                    contextMenu.lineText,
+                    contextMenu.timestamp
+                  )
+                  setContextMenu(null)
+                }}
+              >
+                <Space size={6}>
+                  <span>📌</span>
+                  <span>
+                    {bookmarkedLines[contextMenu.originalIndex] ? 'Unpin Line' : 'Pin Line (Bookmark)'}
+                  </span>
+                </Space>
+              </div>
+              {bookmarkedLines[contextMenu.originalIndex] && (
+                <div
+                  className="menu-item"
+                  onClick={() => {
+                    handleOpenRenameModal(contextMenu.originalIndex)
+                    setContextMenu(null)
+                  }}
+                >
+                  <Space size={6}>
+                    <TagOutlined style={{ color: '#eab308' }} />
+                    <span>Rename Bookmark</span>
+                  </Space>
+                </div>
+              )}
               <div
                 className={`menu-item ${!contextMenu.timestamp ? 'disabled' : ''}`}
                 onClick={() => {
@@ -1613,6 +2155,27 @@ const LogViewer: React.FC<LogViewerProps> = () => {
             )}
           </Space>
           <Space size="middle" style={{ display: 'flex', alignItems: 'center' }}>
+            <Button icon={<FileOutlined />} onClick={handleOpenLogFile} size="small">
+              Open Log File
+            </Button>
+            <Dropdown menu={{ items: recentFilesMenuItems }} trigger={['click']}>
+              <Button icon={<HistoryOutlined />} size="small">
+                Recent Files <DownOutlined style={{ fontSize: 10 }} />
+              </Button>
+            </Dropdown>
+            <Button
+              size="small"
+              icon={
+                <PushpinOutlined
+                  style={{
+                    color: Object.keys(bookmarkedLines).length > 0 ? '#eab308' : undefined
+                  }}
+                />
+              }
+              onClick={() => setBookmarksDrawerOpen(true)}
+            >
+              Bookmarks ({Object.keys(bookmarkedLines).length})
+            </Button>
             <Button
               type="text"
               size="small"
@@ -1767,6 +2330,222 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 </div>
               </Space>
             )}
+          </div>
+        </Modal>
+        <Drawer
+          title={
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                width: '100%'
+              }}
+            >
+              <Space size={8}>
+                <PushpinFilled style={{ color: '#eab308', fontSize: 16 }} />
+                <span style={{ fontWeight: 600, fontSize: 15 }}>
+                  Bookmarks & Pins ({Object.keys(bookmarkedLines).length})
+                </span>
+              </Space>
+              {Object.keys(bookmarkedLines).length > 0 && (
+                <Button
+                  type="link"
+                  danger
+                  size="small"
+                  onClick={handleClearAllBookmarks}
+                  style={{ padding: 0 }}
+                >
+                  Clear All
+                </Button>
+              )}
+            </div>
+          }
+          placement="right"
+          width={400}
+          onClose={() => setBookmarksDrawerOpen(false)}
+          open={bookmarksDrawerOpen}
+          styles={{
+            body: {
+              padding: '12px',
+              background: isDark ? '#09090b' : '#f8fafc'
+            }
+          }}
+        >
+          {Object.keys(bookmarkedLines).length === 0 ? (
+            <Empty
+              description={
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                  No bookmarks added yet. Click 📍 on any log line or right-click to pin lines.
+                </Text>
+              }
+              style={{ marginTop: 60 }}
+            />
+          ) : (
+            <div>
+              {Object.values(bookmarkedLines)
+                .sort((a, b) => a.originalIndex - b.originalIndex)
+                .map((bm) => {
+                  const isEditing = editingBookmarkIndex === bm.originalIndex
+                  return (
+                    <div
+                      key={bm.originalIndex}
+                      onClick={() => handleJumpToBookmark(bm.originalIndex)}
+                      className="bookmark-item"
+                      style={{
+                        padding: '10px 12px',
+                        marginBottom: 8,
+                        borderRadius: 6,
+                        border: isDark
+                          ? '1px solid rgba(255, 255, 255, 0.08)'
+                          : '1px solid rgba(0, 0, 0, 0.08)',
+                        background: isDark ? '#18181c' : '#ffffff',
+                        cursor: 'pointer',
+                        position: 'relative'
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 6
+                        }}
+                      >
+                        <Space size={8} wrap style={{ flex: 1, minWidth: 0 }}>
+                          <Text strong style={{ fontSize: 12, color: '#eab308' }}>
+                            #Line {bm.originalIndex + 1}
+                          </Text>
+                          {bm.timestamp && (
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              {bm.timestamp}
+                            </Text>
+                          )}
+                          {bm.name && !isEditing && (
+                            <Tag color="warning" style={{ fontSize: 11, margin: 0 }}>
+                              🏷️ {bm.name}
+                            </Tag>
+                          )}
+                        </Space>
+                        <Space size={4} onClick={(e) => e.stopPropagation()}>
+                          {!isEditing ? (
+                            <>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<EditOutlined />}
+                                onClick={() => {
+                                  setEditingBookmarkIndex(bm.originalIndex)
+                                  setEditingBookmarkName(bm.name || '')
+                                }}
+                                style={{ color: isDark ? '#94a3b8' : '#64748b' }}
+                                title="Rename Bookmark"
+                              />
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<DeleteOutlined />}
+                                onClick={() => handleRemoveBookmark(bm.originalIndex)}
+                                style={{ color: isDark ? '#94a3b8' : '#64748b' }}
+                                title="Remove Bookmark"
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                type="primary"
+                                size="small"
+                                icon={<CheckOutlined />}
+                                onClick={() =>
+                                  handleSaveBookmarkName(bm.originalIndex, editingBookmarkName)
+                                }
+                                title="Save Name"
+                              />
+                              <Button
+                                type="default"
+                                size="small"
+                                icon={<CloseOutlined />}
+                                onClick={() => {
+                                  setEditingBookmarkIndex(null)
+                                  setEditingBookmarkName('')
+                                }}
+                                title="Cancel"
+                              />
+                            </>
+                          )}
+                        </Space>
+                      </div>
+                      {isEditing && (
+                        <div
+                          style={{ marginBottom: 6 }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Input
+                            size="small"
+                            placeholder="Enter custom bookmark name..."
+                            value={editingBookmarkName}
+                            onChange={(e) => setEditingBookmarkName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleSaveBookmarkName(bm.originalIndex, editingBookmarkName)
+                              } else if (e.key === 'Escape') {
+                                setEditingBookmarkIndex(null)
+                                setEditingBookmarkName('')
+                              }
+                            }}
+                            autoFocus
+                          />
+                        </div>
+                      )}
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontFamily: 'Fira Code, JetBrains Mono, monospace',
+                          color: isDark ? '#e4e4e7' : '#1e293b',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        {bm.text || '(empty line)'}
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          )}
+        </Drawer>
+        <Modal
+          title={
+            <Space>
+              <TagOutlined style={{ color: '#eab308' }} />
+              <span>Rename Bookmark</span>
+            </Space>
+          }
+          open={renameModalVisible}
+          onOk={handleConfirmRenameModal}
+          onCancel={() => {
+            setRenameModalVisible(false)
+            setRenameTargetIndex(null)
+            setRenameInputVal('')
+          }}
+          destroyOnClose
+        >
+          <div style={{ paddingTop: 8 }}>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>
+              Enter a custom name/tag for Line #{renameTargetIndex !== null ? renameTargetIndex + 1 : ''}:
+            </Text>
+            <Input
+              placeholder="e.g. Database Timeout, Error Start"
+              value={renameInputVal}
+              onChange={(e) => setRenameInputVal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleConfirmRenameModal()
+                }
+              }}
+              autoFocus
+            />
           </div>
         </Modal>
       </Layout>
