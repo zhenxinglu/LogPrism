@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from 'react'
 import {
   Button,
   Input,
@@ -22,6 +22,8 @@ import {
   Tag,
   type MenuProps
 } from 'antd'
+import enUS from 'antd/locale/en_US'
+import zhCN from 'antd/locale/zh_CN'
 import {
   FileOutlined,
   DownOutlined,
@@ -35,20 +37,27 @@ import {
   PushpinFilled,
   EditOutlined,
   TagOutlined,
-  ClockCircleOutlined
+  ClockCircleOutlined,
+  BarChartOutlined,
+  CloudServerOutlined,
+  DisconnectOutlined,
+  GlobalOutlined,
+  CodeOutlined,
+  FolderOpenOutlined
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
+import { useTranslation } from 'react-i18next'
+
+import { VirtualLogList, LogLineData } from './VirtualLogList'
+import { LogTimeline, LogLevel, detectLogLevel } from './LogTimeline'
+import { RemoteLogModal, SshConfig } from './RemoteLogModal'
+import { getSavedLanguage, setSavedLanguage } from '../i18n'
+import { parseStackReference } from '../utils/stackTraceParser'
 
 const { Text } = Typography
 const { Content, Footer } = Layout
 
 interface LogViewerProps {}
-
-interface LogLineData {
-  text: string
-  originalIndex: number
-  timestamp: string | null
-}
 
 interface BookmarkData {
   originalIndex: number
@@ -58,24 +67,45 @@ interface BookmarkData {
 }
 
 const PRESET_COLORS = [
-  { name: 'Blue', value: 'blue', color: '#3b82f6', borderLeftColor: '#1d4ed8' },
-  { name: 'Red', value: 'red', color: '#ef4444', borderLeftColor: '#b91c1c' },
-  { name: 'Green', value: 'green', color: '#10b981', borderLeftColor: '#047857' },
-  { name: 'Orange', value: 'orange', color: '#f97316', borderLeftColor: '#c2410c' },
-  { name: 'Purple', value: 'purple', color: '#8b5cf6', borderLeftColor: '#6d28d9' }
+  {
+    nameKey: 'contextMenu.colorBlue',
+    defaultName: 'Blue',
+    value: 'blue',
+    color: '#3b82f6',
+    borderLeftColor: '#1d4ed8'
+  },
+  {
+    nameKey: 'contextMenu.colorRed',
+    defaultName: 'Red',
+    value: 'red',
+    color: '#ef4444',
+    borderLeftColor: '#b91c1c'
+  },
+  {
+    nameKey: 'contextMenu.colorGreen',
+    defaultName: 'Green',
+    value: 'green',
+    color: '#10b981',
+    borderLeftColor: '#047857'
+  },
+  {
+    nameKey: 'contextMenu.colorOrange',
+    defaultName: 'Orange',
+    value: 'orange',
+    color: '#f97316',
+    borderLeftColor: '#c2410c'
+  },
+  {
+    nameKey: 'contextMenu.colorPurple',
+    defaultName: 'Purple',
+    value: 'purple',
+    color: '#8b5cf6',
+    borderLeftColor: '#6d28d9'
+  }
 ]
 
 const defaultStart = dayjs('00:00:00', 'HH:mm:ss')
 const defaultEnd = dayjs('23:59:59.999', 'HH:mm:ss.SSS')
-
-const escapeHtml = (text: string): string => {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
 
 export interface TimestampFormat {
   id: string
@@ -152,7 +182,8 @@ const TIMESTAMP_FORMATS: TimestampFormat[] = [
     id: 'clf',
     name: 'DD/MMM/YYYY:HH:mm:ss',
     example: '30/Jul/2026:08:58:24',
-    regex: /^\[?(\d{2}\/[A-Za-z]{3}\/\d{4}:(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)(?:\s+[+-]\d{4})?)\]?/,
+    regex:
+      /^\[?(\d{2}\/[A-Za-z]{3}\/\d{4}:(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)(?:\s+[+-]\d{4})?)\]?/,
     extractTime: (_matchStr, fullMatch) => {
       const m = fullMatch.match(/:(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
       return m ? formatTimestamp(m[1]) : null
@@ -218,6 +249,19 @@ const detectTimestampFormat = (content: string): TimestampFormat | null => {
 }
 
 const LogViewer: React.FC<LogViewerProps> = () => {
+  const { t } = useTranslation()
+  const [currentLang, setCurrentLang] = useState<'en' | 'zh'>(() => getSavedLanguage())
+
+  const handleLanguageChange = (lang: 'en' | 'zh') => {
+    setSavedLanguage(lang)
+    setCurrentLang(lang)
+    window.api.saveSettings({ language: lang })
+  }
+
+  const antdLocale = useMemo(() => {
+    return currentLang === 'zh' ? zhCN : enUS
+  }, [currentLang])
+
   const [includeKeywords, setIncludeKeywords] = useState('')
   const [excludeKeywords, setExcludeKeywords] = useState('')
   const [isIncludeCaseSensitive, setIsIncludeCaseSensitive] = useState(false)
@@ -245,6 +289,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const [isInitialized, setIsInitialized] = useState(false)
   const [fontSize, setFontSize] = useState<number>(13)
   const [wordWrap, setWordWrap] = useState<boolean>(true)
+  const [showLineNumbers, setShowLineNumbers] = useState<boolean>(true)
   const [highlightWord, setHighlightWord] = useState<string>('')
   const [tailMode, setTailMode] = useState<boolean>(true)
   const [isTailSuspended, setIsTailSuspended] = useState<boolean>(false)
@@ -255,15 +300,114 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const [showScrollTop, setShowScrollTop] = useState<boolean>(false)
   const [showScrollBottom, setShowScrollBottom] = useState<boolean>(false)
   const logContainerRef = useRef<HTMLDivElement>(null)
-  const preRef = useRef<HTMLPreElement>(null)
+
+  const [showTimeline, setShowTimeline] = useState<boolean>(true)
+  const [unfilteredTimeLines, setUnfilteredTimeLines] = useState<LogLineData[]>([])
+
+  const [selectedLogLevels, setSelectedLogLevels] = useState<Record<LogLevel, boolean>>({
+    ERROR: true,
+    WARN: true,
+    INFO: true,
+    DEBUG: true,
+    OTHER: true
+  })
+  const [levelCounts, setLevelCounts] = useState<Record<LogLevel, number>>({
+    ERROR: 0,
+    WARN: 0,
+    INFO: 0,
+    DEBUG: 0,
+    OTHER: 0
+  })
 
   // App version
   const [appVersion, setAppVersion] = useState<string>('')
 
+  // SSH Remote Log states
+  const [remoteModalOpen, setRemoteModalOpen] = useState(false)
+  const [activeRemoteConfig, setActiveRemoteConfig] = useState<SshConfig | null>(null)
+  const [remoteStatus, setRemoteStatus] = useState<{
+    status: 'connecting' | 'connected' | 'disconnected' | 'error'
+    message?: string
+    host?: string
+    remotePath?: string
+  } | null>(null)
+
+  // Source Code Root & IntelliJ IDEA integration states
+  const [sourceRootPath, setSourceRootPath] = useState<string | null>(null)
+  const [ideaExecutablePath, setIdeaExecutablePath] = useState<string | null>(null)
+  const [isSourceRootModalOpen, setIsSourceRootModalOpen] = useState<boolean>(false)
+
+  useEffect(() => {
+    if (window.api && window.api.getIdeaConfig) {
+      window.api.getIdeaConfig().then(({ sourceRootPath, ideaExecutablePath }) => {
+        if (sourceRootPath) setSourceRootPath(sourceRootPath)
+        if (ideaExecutablePath) setIdeaExecutablePath(ideaExecutablePath)
+      })
+    }
+  }, [])
+
+  const handleBrowseSourceRoot = async () => {
+    const selected = await window.api.selectSourceDirectory()
+    if (selected) {
+      setSourceRootPath(selected)
+      message.success(`${t('idea.sourceRootTitle')}: ${selected}`)
+    }
+  }
+
+  const handleBrowseIdeaExecutable = async () => {
+    const selected = await window.api.selectIdeaExecutable()
+    if (selected) {
+      setIdeaExecutablePath(selected)
+      message.success(t('idea.autoDetectSuccess', { path: selected }))
+    }
+  }
+
+  const handleAutoDetectIdea = async () => {
+    const detected = await window.api.detectIdeaExecutable()
+    if (detected) {
+      setIdeaExecutablePath(detected)
+      message.success(t('idea.autoDetectSuccess', { path: detected }))
+    } else {
+      message.warning(t('idea.autoDetectFailed'))
+    }
+  }
+
+  const handleOpenInIdea = async (fileName?: string, className?: string) => {
+    const result = await window.api.openInIdea({ fileName, className })
+    if (result.success) {
+      if (result.fileFound && fileName) {
+        message.success(`Opened ${fileName} in IntelliJ IDEA`)
+      } else if (fileName) {
+        message.info(
+          `Opened project in IntelliJ IDEA (File '${fileName}' is a 3rd-party library dependency not in source root)`
+        )
+      } else {
+        message.success('Opened project in IntelliJ IDEA')
+      }
+    } else if (result.reason === 'NO_SOURCE_ROOT') {
+      setIsSourceRootModalOpen(true)
+    } else if (result.reason === 'INVALID_SOURCE_ROOT') {
+      message.error(result.message || 'Invalid source root directory')
+      setIsSourceRootModalOpen(true)
+    } else {
+      message.error(result.message || 'Failed to open in IntelliJ IDEA')
+    }
+  }
+
+  const maxLineDigits = useMemo(() => {
+    if (!logContent) return 1
+    const total = logContent.split(/\r?\n/).length
+    return Math.max(String(total).length, 3)
+  }, [logContent])
+
   // Update check states
   const [updateModalVisible, setUpdateModalVisible] = useState(false)
-  const [updateStatus, setUpdateStatus] = useState<'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'>('idle')
-  const [updateInfo, setUpdateInfo] = useState<{ version: string; releaseNotes?: string } | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<
+    'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  >('idle')
+  const [updateInfo, setUpdateInfo] = useState<{ version: string; releaseNotes?: string } | null>(
+    null
+  )
   const [downloadPercent, setDownloadPercent] = useState<number>(0)
   const [updateErrorMsg, setUpdateErrorMsg] = useState<string>('')
 
@@ -296,7 +440,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     })
 
     const unsubError = window.api.onUpdaterEvent('updater:error', (errorText) => {
-      setUpdateErrorMsg(errorText || 'Failed to update')
+      setUpdateErrorMsg(errorText || t('updater.errorTitle'))
       setUpdateStatus('error')
       setUpdateModalVisible(true)
     })
@@ -309,7 +453,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       unsubDownloaded()
       unsubError()
     }
-  }, [])
+  }, [t])
 
   const handleCheckForUpdates = async () => {
     setUpdateErrorMsg('')
@@ -371,6 +515,69 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     lineText: string
   } | null>(null)
 
+  const contextMenuRef = useRef<HTMLDivElement>(null)
+  const [contextMenuPos, setContextMenuPos] = useState<{
+    left: number
+    top: number
+    submenuPlacement: { left: string; right: string; top: string; bottom: string }
+  }>({
+    left: 0,
+    top: 0,
+    submenuPlacement: {
+      left: 'calc(100% - 2px)',
+      right: 'auto',
+      top: '-4px',
+      bottom: 'auto'
+    }
+  })
+
+  useLayoutEffect(() => {
+    if (!contextMenu || !contextMenuRef.current) return
+
+    const menuEl = contextMenuRef.current
+    const rect = menuEl.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+
+    let left = contextMenu.x
+    let top = contextMenu.y
+
+    if (left + rect.width > vw - 8) {
+      left = Math.max(8, vw - rect.width - 8)
+    }
+    if (top + rect.height > vh - 8) {
+      top = Math.max(8, vh - rect.height - 8)
+    }
+    if (left < 8) left = 8
+    if (top < 8) top = 8
+
+    // Check submenu horizontal placement
+    const submenuWidth = 140
+    const openSubmenuLeft = left + rect.width + submenuWidth > vw - 8
+
+    // Check submenu vertical placement
+    const hasSubmenuItem = menuEl.querySelector('.has-submenu') as HTMLElement | null
+    let openSubmenuUp = false
+    if (hasSubmenuItem) {
+      const itemRect = hasSubmenuItem.getBoundingClientRect()
+      const estimatedSubmenuHeight = 210
+      if (itemRect.top - 4 + estimatedSubmenuHeight > vh - 8) {
+        openSubmenuUp = true
+      }
+    }
+
+    setContextMenuPos({
+      left,
+      top,
+      submenuPlacement: {
+        left: openSubmenuLeft ? 'auto' : 'calc(100% - 2px)',
+        right: openSubmenuLeft ? 'calc(100% - 2px)' : 'auto',
+        top: openSubmenuUp ? 'auto' : '-4px',
+        bottom: openSubmenuUp ? '-4px' : 'auto'
+      }
+    })
+  }, [contextMenu])
+
   const handleToggleBookmark = useCallback(
     (originalIndex: number, text: string, timestamp: string | null) => {
       const isBookmarked = !!bookmarkedLines[originalIndex]
@@ -380,16 +587,16 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           delete updated[originalIndex]
           return updated
         })
-        message.info(`Removed bookmark for Line #${originalIndex + 1}`)
+        message.info(t('bookmarks.lineNum', { line: originalIndex + 1 }))
       } else {
         setBookmarkedLines((prev) => ({
           ...prev,
           [originalIndex]: { originalIndex, text, timestamp }
         }))
-        message.success(`Bookmarked Line #${originalIndex + 1}`)
+        message.success(t('bookmarks.lineNum', { line: originalIndex + 1 }))
       }
     },
-    [bookmarkedLines]
+    [bookmarkedLines, t]
   )
 
   const handleRemoveBookmark = useCallback((originalIndex: number) => {
@@ -402,8 +609,8 @@ const LogViewer: React.FC<LogViewerProps> = () => {
 
   const handleClearAllBookmarks = useCallback(() => {
     setBookmarkedLines({})
-    message.success('Cleared all bookmarks')
-  }, [])
+    message.success(t('bookmarks.clearAll'))
+  }, [t])
 
   const handleJumpToBookmark = useCallback((originalIndex: number) => {
     const container = logContainerRef.current
@@ -439,7 +646,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     })
     setEditingBookmarkIndex(null)
     setEditingBookmarkName('')
-    message.success('Bookmark name updated')
+    message.success('Bookmark updated')
   }, [])
 
   const handleOpenRenameModal = useCallback(
@@ -534,7 +741,14 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           if (config.themeMode !== undefined) setThemeMode(config.themeMode)
           if (config.fontSize !== undefined) setFontSize(config.fontSize)
           if (config.wordWrap !== undefined) setWordWrap(config.wordWrap)
+          if (config.showLineNumbers !== undefined) setShowLineNumbers(config.showLineNumbers)
           if (config.tailMode !== undefined) setTailMode(config.tailMode)
+          if (config.showTimeline !== undefined) setShowTimeline(config.showTimeline)
+          if (config.selectedLogLevels !== undefined) setSelectedLogLevels(config.selectedLogLevels)
+          if (config.language === 'zh' || config.language === 'en') {
+            setCurrentLang(config.language)
+            setSavedLanguage(config.language)
+          }
         }
       } catch (err) {
         console.error('Failed to initialize settings:', err)
@@ -560,7 +774,11 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         themeMode,
         fontSize,
         wordWrap,
-        tailMode
+        showLineNumbers,
+        tailMode,
+        showTimeline,
+        selectedLogLevels,
+        language: currentLang
       })
       localStorage.setItem('themeMode', themeMode)
     }, 500)
@@ -577,7 +795,11 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     themeMode,
     fontSize,
     wordWrap,
-    tailMode
+    showLineNumbers,
+    tailMode,
+    showTimeline,
+    selectedLogLevels,
+    currentLang
   ])
 
   const isDark = themeMode === 'dark'
@@ -654,11 +876,16 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         if (res.recentFiles) {
           setRecentFiles(res.recentFiles)
         }
-        if (res.filePath && res.content !== null) {
+        if (res.filePath) {
           setCurrentFilePath(res.filePath)
           setIsTailSuspended(false)
           setHasNewLogs(false)
-          setLogContent(res.content)
+          if (res.content !== null) {
+            setLogContent(res.content)
+          } else {
+            const lineRes = await window.api.readLogLines(res.filePath, 0, res.totalLines || 500000)
+            setLogContent(lineRes.lines.join('\n'))
+          }
         }
       }
     }
@@ -666,12 +893,28 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   }, [])
 
   useEffect(() => {
-    const unsubscribe = window.api.onLogFileChanged((newContent: string): void => {
-      isUpdatingFromFileWatcherRef.current = true
-      setLogContent(newContent)
-      const now = dayjs()
-      setUpdateTime(now.format('HH:mm:ss'))
-      setLastUpdateTimestamp(now.valueOf())
+    const unsubscribe = window.api.onLogFileChanged((data: any): void => {
+      const handleUpdate = async () => {
+        isUpdatingFromFileWatcherRef.current = true
+        if (typeof data === 'string') {
+          setLogContent(data)
+        } else if (data && data.filePath) {
+          if (data.content !== null) {
+            setLogContent(data.content)
+          } else {
+            const lineRes = await window.api.readLogLines(
+              data.filePath,
+              0,
+              data.totalLines || 500000
+            )
+            setLogContent(lineRes.lines.join('\n'))
+          }
+        }
+        const now = dayjs()
+        setUpdateTime(now.format('HH:mm:ss'))
+        setLastUpdateTimestamp(now.valueOf())
+      }
+      handleUpdate()
     })
     return (): void => {
       unsubscribe()
@@ -697,14 +940,14 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       const diffMs = Date.now() - lastUpdateTimestamp
       const diffSec = Math.floor(diffMs / 1000)
       if (diffSec < 60) {
-        setTimeAgoText(`(${diffSec} second${diffSec !== 1 ? 's' : ''} ago)`)
+        setTimeAgoText(`(${diffSec}s)`)
       } else {
         const diffMin = Math.floor(diffSec / 60)
         if (diffMin < 60) {
-          setTimeAgoText(`(${diffMin} minute${diffMin !== 1 ? 's' : ''} ago)`)
+          setTimeAgoText(`(${diffMin}m)`)
         } else {
           const diffHr = Math.floor(diffMin / 60)
-          setTimeAgoText(`(${diffHr} hour${diffHr !== 1 ? 's' : ''} ago)`)
+          setTimeAgoText(`(${diffHr}h)`)
         }
       }
     }
@@ -716,12 +959,17 @@ const LogViewer: React.FC<LogViewerProps> = () => {
 
   const handleOpenLogFile = async (): Promise<void> => {
     const res = await window.api.openLogFile()
-    if (res && res.content !== null) {
+    if (res && res.filePath) {
       setCurrentFilePath(res.filePath)
       setRecentFiles(res.recentFiles || [])
       setIsTailSuspended(false)
       setHasNewLogs(false)
-      setLogContent(res.content)
+      if (res.content !== null) {
+        setLogContent(res.content)
+      } else {
+        const lineRes = await window.api.readLogLines(res.filePath, 0, res.totalLines || 500000)
+        setLogContent(lineRes.lines.join('\n'))
+      }
       setFilteredContent('')
       setMatchCount(0)
       setUpdateTime(null)
@@ -735,14 +983,19 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const handleSelectRecentFile = async (filePath: string): Promise<void> => {
     if (filePath === currentFilePath) return
     const res = await window.api.openFileByPath(filePath)
-    if (res.success && res.content !== undefined) {
+    if (res.success && res.filePath) {
       setCurrentFilePath(res.filePath || filePath)
       if (res.recentFiles) {
         setRecentFiles(res.recentFiles)
       }
       setIsTailSuspended(false)
       setHasNewLogs(false)
-      setLogContent(res.content)
+      if (res.content !== null && res.content !== undefined) {
+        setLogContent(res.content)
+      } else {
+        const lineRes = await window.api.readLogLines(res.filePath, 0, res.totalLines || 500000)
+        setLogContent(lineRes.lines.join('\n'))
+      }
       setFilteredContent('')
       setMatchCount(0)
       setUpdateTime(null)
@@ -751,7 +1004,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       setBookmarkedLines({})
       setContextMenu(null)
     } else {
-      message.error(res.error || 'Failed to open recent file. File may no longer exist.')
+      message.error(res.error || 'Failed to open recent file.')
       const updatedList = await window.api.getRecentFiles()
       setRecentFiles(updatedList)
     }
@@ -760,7 +1013,57 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   const handleClearRecentFiles = async (): Promise<void> => {
     await window.api.clearRecentFiles()
     setRecentFiles([])
-    message.success('Recent files history cleared')
+    message.success(t('header.clearRecent'))
+  }
+
+  // Subscribe to remote SSH log data and status IPC events
+  useEffect(() => {
+    const unsubData = window.api.onRemoteLogData(({ data }) => {
+      isUpdatingFromFileWatcherRef.current = true
+      setLogContent((prev) => (prev ? prev + data : data))
+      const now = dayjs()
+      setUpdateTime(now.format('HH:mm:ss'))
+      setLastUpdateTimestamp(now.valueOf())
+    })
+
+    const unsubStatus = window.api.onRemoteLogStatus((statusData) => {
+      setRemoteStatus(statusData)
+      if (statusData.status === 'connected') {
+        message.success(t('header.remoteSshConnected', { server: statusData.host }))
+      } else if (statusData.status === 'error') {
+        message.error(`SSH Error: ${statusData.message || 'Connection error'}`)
+      }
+    })
+
+    return () => {
+      unsubData()
+      unsubStatus()
+    }
+  }, [t])
+
+  const handleConnectRemote = async (config: SshConfig): Promise<void> => {
+    setActiveRemoteConfig(config)
+    setLogContent('')
+    setIsTailSuspended(false)
+    setHasNewLogs(false)
+    setCurrentFilePath(
+      `ssh://${config.username}@${config.host}:${config.port || 22}${config.remotePath}`
+    )
+    setRemoteStatus({ status: 'connecting', host: config.host, remotePath: config.remotePath })
+    setFilteredContent('')
+    setMatchCount(0)
+    setUpdateTime(null)
+    setLastUpdateTimestamp(null)
+    setMarkedLines({})
+    setBookmarkedLines({})
+    setContextMenu(null)
+    await window.api.connectRemoteLog(config)
+  }
+
+  const handleDisconnectRemote = async (): Promise<void> => {
+    await window.api.disconnectRemoteLog()
+    setRemoteStatus({ status: 'disconnected' })
+    message.info(t('header.remoteSshDisconnected'))
   }
 
   const recentFilesMenuItems: MenuProps['items'] = useMemo(() => {
@@ -769,7 +1072,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         {
           key: 'no-recent',
           disabled: true,
-          label: <Text type="secondary">No recent files</Text>
+          label: <Text type="secondary">{t('header.noRecentFiles')}</Text>
         }
       ]
     }
@@ -819,12 +1122,12 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       key: 'clear-history',
       danger: true,
       icon: <DeleteOutlined />,
-      label: 'Clear History',
+      label: t('header.clearRecent'),
       onClick: handleClearRecentFiles
     })
 
     return items
-  }, [recentFiles, currentFilePath, isDark])
+  }, [recentFiles, currentFilePath, isDark, t])
 
   const triggerSearch = (query: string) => {
     if (query.trim() === '') {
@@ -862,8 +1165,9 @@ const LogViewer: React.FC<LogViewerProps> = () => {
   }
 
   const handleSearchInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' || e.key === 'F3') {
       e.preventDefault()
+      e.stopPropagation()
       if (searchQuery !== searchKeyword) {
         triggerSearch(searchQuery)
       } else if (searchMatchesCount > 0) {
@@ -880,7 +1184,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     const parsed = dayjs(timestamp, 'HH:mm:ss.SSS')
     if (parsed.isValid()) {
       setStartTime(parsed)
-      message.success(`Start time set to ${timestamp}`)
+      message.success(`${t('contextMenu.setStartTime')}: ${timestamp}`)
     } else {
       message.error('Invalid timestamp format')
     }
@@ -890,7 +1194,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     const parsed = dayjs(timestamp, 'HH:mm:ss.SSS')
     if (parsed.isValid()) {
       setEndTime(parsed)
-      message.success(`End time set to ${timestamp}`)
+      message.success(`${t('contextMenu.setEndTime')}: ${timestamp}`)
     } else {
       message.error('Invalid timestamp format')
     }
@@ -905,27 +1209,6 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         delete updated[originalIndex]
       }
       return updated
-    })
-  }
-
-  const handleContextMenu = (e: React.MouseEvent<HTMLPreElement>) => {
-    const target = e.target as HTMLElement
-    const lineEl = target.closest('.log-line')
-    if (!lineEl) return
-
-    e.preventDefault()
-
-    const originalIndexStr = lineEl.getAttribute('data-original-index')
-    if (originalIndexStr === null) return
-    const originalIndex = parseInt(originalIndexStr, 10)
-    const timestamp = lineEl.getAttribute('data-timestamp') || null
-
-    setContextMenu({
-      x: e.clientX,
-      y: e.clientY,
-      originalIndex,
-      timestamp,
-      lineText: lineEl.textContent || ''
     })
   }
 
@@ -986,6 +1269,16 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     }, 0)
   }, [])
 
+  const handleSelectTimelineTimeRange = useCallback((start: Dayjs, end: Dayjs) => {
+    setStartTime(start)
+    setEndTime(end)
+  }, [])
+
+  const handleResetTimelineTimeRange = useCallback(() => {
+    setStartTime(defaultStart)
+    setEndTime(defaultEnd)
+  }, [])
+
   const handleResumeTail = () => {
     handleScrollToBottom()
   }
@@ -1030,18 +1323,23 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           }
         }, 50)
       } else if (e.key === 'F3') {
+        const target = e.target as HTMLElement
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+          return
+        }
         e.preventDefault()
-        if (visible) {
-          const query = searchQueryRef.current
-          const kw = searchKeywordRef.current
-          if (query !== kw) {
-            triggerSearch(query)
-          } else if (count > 0) {
-            if (e.shiftKey) {
-              setCurrentMatchIndex((prev) => (prev - 1 + count) % count)
-            } else {
-              setCurrentMatchIndex((prev) => (prev + 1) % count)
-            }
+        if (!visible) {
+          setSearchVisible(true)
+        }
+        const query = searchQueryRef.current
+        const kw = searchKeywordRef.current
+        if (query && query !== kw) {
+          triggerSearch(query)
+        } else if (count > 0) {
+          if (e.shiftKey) {
+            setCurrentMatchIndex((prev) => (prev - 1 + count) % count)
+          } else {
+            setCurrentMatchIndex((prev) => (prev + 1) % count)
           }
         }
       } else if (e.key === 'Escape') {
@@ -1105,37 +1403,16 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     })
   }, [filteredContent, searchKeyword, searchVisible])
 
-  const handleDoubleClick = (): void => {
-    const selection = window.getSelection()
-    if (!selection) return
-    const text = selection.toString().trim()
-    // Verify it's a single word (no whitespace inside, not empty, and not too long)
-    if (text && text.length > 0 && text.length < 100 && !/\s/.test(text)) {
-      setHighlightWord(text)
-    }
-  }
-
-  const handlePreClick = useCallback(
-    (e: React.MouseEvent<HTMLPreElement>): void => {
-      const target = e.target as HTMLElement
-      const btn = target.closest('.log-bookmark-btn')
-      if (btn) {
-        e.stopPropagation()
-        const originalIndexStr = btn.getAttribute('data-bookmark-index')
-        if (originalIndexStr !== null) {
-          const idx = parseInt(originalIndexStr, 10)
-          const lineData = filteredLines.find((l) => l.originalIndex === idx)
-          const lineEl = btn.closest('.log-line')
-          const text = lineData ? lineData.text : lineEl?.textContent?.replace(/^[📌📍]\s*/, '') || ''
-          const ts = lineData ? lineData.timestamp : lineEl?.getAttribute('data-timestamp') || null
-          handleToggleBookmark(idx, text, ts)
-        }
-      }
-    },
-    [filteredLines, handleToggleBookmark]
-  )
-
   useEffect(() => {
+    const handleDocumentDblClick = (): void => {
+      const selection = window.getSelection()
+      if (!selection) return
+      const text = selection.toString().trim()
+      if (text && text.length > 0 && text.length < 100 && !/\s/.test(text)) {
+        setHighlightWord(text)
+      }
+    }
+
     const handleDocumentClick = (): void => {
       setContextMenu(null)
       const selection = window.getSelection()
@@ -1148,182 +1425,21 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       setContextMenu(null)
     }
 
+    document.addEventListener('dblclick', handleDocumentDblClick)
     document.addEventListener('click', handleDocumentClick)
     window.addEventListener('blur', handleWindowBlur)
     return (): void => {
+      document.removeEventListener('dblclick', handleDocumentDblClick)
       document.removeEventListener('click', handleDocumentClick)
       window.removeEventListener('blur', handleWindowBlur)
     }
   }, [])
 
-  const highlightedHtml = useMemo((): string => {
-    if (!logContent) return 'Please open a log file first...'
-
-    if (searchVisible && searchKeyword) {
-      const escapedWord = searchKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const regex = new RegExp(`(${escapedWord})`, 'gi')
-      const parts = filteredContent.split(regex)
-
-      let matchIdx = 0
-      return parts
-        .map((part, index): string => {
-          if (index % 2 === 1) {
-            const isCurrent = matchIdx === currentMatchIndex
-            const className = isCurrent ? 'search-match search-match-active' : 'search-match'
-            const rendered = `<mark class="${className}" data-match-index="${matchIdx}">${escapeHtml(part)}</mark>`
-            matchIdx++
-            return rendered
-          }
-          return escapeHtml(part)
-        })
-        .join('')
-    }
-
-    if (!highlightWord) return escapeHtml(filteredContent)
-
-    // Escape regex special characters to safely build RegExp
-    const escapedWord = highlightWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regex = new RegExp(`(${escapedWord})`, 'g')
-    const parts = filteredContent.split(regex)
-
-    return parts
-      .map((part, index): string => {
-        if (index % 2 === 1) {
-          return `<mark class="log-highlight">${escapeHtml(part)}</mark>`
-        }
-        return escapeHtml(part)
-      })
-      .join('')
-  }, [filteredContent, highlightWord, logContent, searchVisible, searchKeyword, currentMatchIndex])
-
-  // Save/restore selection range around innerHTML update to prevent losing user text selection
-  const saveSelection = useCallback((): {
-    startNode: Node
-    startOffset: number
-    endNode: Node
-    endOffset: number
-  } | null => {
-    const selection = window.getSelection()
-    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
-    const pre = preRef.current
-    if (!pre) return null
-    const range = selection.getRangeAt(0)
-    if (!pre.contains(range.commonAncestorContainer)) return null
-
-    // Convert DOM range to text offsets relative to pre.textContent
-    const getTextOffset = (node: Node, offset: number): number => {
-      let textOffset = 0
-      const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT)
-      let current: Node | null
-      while ((current = walker.nextNode()) !== null) {
-        if (current === node) {
-          return textOffset + offset
-        }
-        textOffset += (current as Text).length
-      }
-      return textOffset
-    }
-
-    return {
-      startNode: range.startContainer,
-      startOffset: getTextOffset(range.startContainer, range.startOffset),
-      endNode: range.endContainer,
-      endOffset: getTextOffset(range.endContainer, range.endOffset)
-    }
-  }, [])
-
-  const restoreSelection = useCallback(
-    (saved: { startOffset: number; endOffset: number } | null): void => {
-      if (!saved) return
-      const pre = preRef.current
-      if (!pre) return
-      const selection = window.getSelection()
-      if (!selection) return
-
-      // Find text nodes and rebuild range from text offsets
-      const findNodeAtOffset = (targetOffset: number): { node: Node; offset: number } | null => {
-        let textOffset = 0
-        const walker = document.createTreeWalker(pre, NodeFilter.SHOW_TEXT)
-        let current: Node | null
-        while ((current = walker.nextNode()) !== null) {
-          const len = (current as Text).length
-          if (textOffset + len >= targetOffset) {
-            return { node: current, offset: targetOffset - textOffset }
-          }
-          textOffset += len
-        }
-        return null
-      }
-
-      const start = findNodeAtOffset(saved.startOffset)
-      const end = findNodeAtOffset(saved.endOffset)
-      if (!start || !end) return
-
-      try {
-        const range = document.createRange()
-        range.setStart(start.node, start.offset)
-        range.setEnd(end.node, end.offset)
-        selection.removeAllRanges()
-        selection.addRange(range)
-      } catch {
-        // Ignore — node structure may have changed
-      }
-    },
-    []
-  )
-
-  const renderedLinesHtml = useMemo((): string => {
-    if (!logContent) return 'Please open a log file first...'
-    const htmlLines = highlightedHtml.split('\n')
-    return htmlLines
-      .map((htmlLine, idx): string => {
-        const lineData = filteredLines[idx]
-        if (!lineData) return htmlLine
-
-        const originalIndex = lineData.originalIndex
-        const timestamp = lineData.timestamp
-
-        // Determine if this line is marked
-        const markColor = markedLines[originalIndex]
-        const markedClass = markColor ? ` marked-${markColor}` : ''
-
-        // Determine if this line is bookmarked
-        const isBookmarked = !!bookmarkedLines[originalIndex]
-        const bookmarkData = bookmarkedLines[originalIndex]
-        const bookmarkedClass = isBookmarked ? ' is-bookmarked' : ''
-
-        // Determine if this line is flashing
-        const flashClass = targetFlashLine === originalIndex ? ' flash-highlight' : ''
-
-        const bookmarkTitle = isBookmarked
-          ? bookmarkData?.name
-            ? `Bookmark: ${bookmarkData.name}`
-            : 'Remove Bookmark (Pin)'
-          : 'Bookmark Line (Pin)'
-
-        const bookmarkBtn = `<span class="log-bookmark-btn${isBookmarked ? ' active' : ''}" title="${escapeHtml(bookmarkTitle)}" data-bookmark-index="${originalIndex}">${isBookmarked ? '📌' : '📍'}</span>`
-
-        return `<div class="log-line${markedClass}${bookmarkedClass}${flashClass}" data-original-index="${originalIndex}" data-timestamp="${timestamp || ''}">${bookmarkBtn}${htmlLine || ' '}</div>`
-      })
-      .join('')
-  }, [highlightedHtml, filteredLines, markedLines, bookmarkedLines, targetFlashLine, logContent])
-
-  // Update innerHTML directly (bypassing React reconcile) while preserving selection
-  useEffect(() => {
-    const pre = preRef.current
-    if (!pre) return
-
-    const saved = saveSelection()
-    pre.innerHTML = renderedLinesHtml
-    if (saved) {
-      restoreSelection(saved)
-    }
-  }, [renderedLinesHtml, saveSelection, restoreSelection])
-
   useEffect(() => {
     if (!logContent) {
       setFilteredContent('')
       setFilteredLines([])
+      setUnfilteredTimeLines([])
       setMatchCount(0)
       return
     }
@@ -1371,6 +1487,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
 
     interface LogEntry {
       timestamp: string | null
+      level: LogLevel
       lines: { text: string; originalIndex: number }[]
     }
 
@@ -1385,7 +1502,8 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           ts = activeFormat.extractTime(m[1] || m[0], m[0])
         }
       } else {
-        const fallbackRegex = /^\[?(?:\d{4}[-/]\d{2}[-/]\d{2}[\sT])?(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/
+        const fallbackRegex =
+          /^\[?(?:\d{4}[-/]\d{2}[-/]\d{2}[\sT])?(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/
         const m = line.match(fallbackRegex)
         if (m) {
           ts = formatTimestamp(m[1])
@@ -1395,6 +1513,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       if (ts) {
         currentEntry = {
           timestamp: ts,
+          level: detectLogLevel(line),
           lines: [{ text: line, originalIndex: index }]
         }
         entries.push(currentEntry)
@@ -1404,6 +1523,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         } else {
           currentEntry = {
             timestamp: null,
+            level: detectLogLevel(line),
             lines: [{ text: line, originalIndex: index }]
           }
           entries.push(currentEntry)
@@ -1411,13 +1531,25 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       }
     })
 
+    // Compute level counts across all entries
+    const counts: Record<LogLevel, number> = {
+      ERROR: 0,
+      WARN: 0,
+      INFO: 0,
+      DEBUG: 0,
+      OTHER: 0
+    }
+    entries.forEach((entry) => {
+      counts[entry.level] = (counts[entry.level] || 0) + 1
+    })
+    setLevelCounts(counts)
+
+    const unfilteredTimeData: LogLineData[] = []
     const filteredData: LogLineData[] = []
 
     entries.forEach((entry) => {
-      // Validate time range
-      if (entry.timestamp !== null) {
-        if (entry.timestamp < start || entry.timestamp > end) return
-      }
+      // Validate Log Level Filter
+      if (!selectedLogLevels[entry.level]) return
 
       const hasInclude = targetIncludeArr.length > 0
       const hasExclude = targetExcludeArr.length > 0
@@ -1439,14 +1571,22 @@ const LogViewer: React.FC<LogViewerProps> = () => {
       }
 
       entry.lines.forEach((l) => {
-        filteredData.push({
+        const item: LogLineData = {
           text: l.text,
           originalIndex: l.originalIndex,
-          timestamp: entry.timestamp
-        })
+          timestamp: entry.timestamp,
+          level: entry.level
+        }
+        unfilteredTimeData.push(item)
+
+        // Validate time range
+        if (entry.timestamp === null || (entry.timestamp >= start && entry.timestamp <= end)) {
+          filteredData.push(item)
+        }
       })
     })
 
+    setUnfilteredTimeLines(unfilteredTimeData)
     setFilteredLines(filteredData)
     setFilteredContent(filteredData.map((d) => d.text).join('\n'))
     setMatchCount(filteredData.length)
@@ -1458,11 +1598,13 @@ const LogViewer: React.FC<LogViewerProps> = () => {
     isExcludeCaseSensitive,
     startTime,
     endTime,
-    activeFormat
+    activeFormat,
+    selectedLogLevels
   ])
 
   return (
     <ConfigProvider
+      locale={antdLocale}
       theme={{
         algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
@@ -1588,7 +1730,6 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           transform: translateY(-1px);
         }
         
-        /* Context menu and submenu styles: enhance border outline and hover background to increase contrast against main window */
         .custom-context-menu {
           min-width: 140px;
           background: ${isDark ? 'rgba(38, 38, 44, 0.96)' : 'rgba(255, 255, 255, 0.98)'};
@@ -1694,69 +1835,221 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                         style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}
                       />
                     )}
-                    <b style={styles.headerText}>Filters</b>
+                    <b style={styles.headerText}>{t('header.toggleFilterPanel')}</b>
                   </Space>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={isCollapsed ? <DownOutlined /> : <UpOutlined />}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setIsCollapsed(!isCollapsed)
-                    }}
-                    style={{
-                      color: isDark ? '#94a3b8' : '#64748b',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                    title={isCollapsed ? 'Expand' : 'Collapse'}
-                  />
+                  <Space size={8} onClick={(e) => e.stopPropagation()}>
+                    <Button icon={<FileOutlined />} onClick={handleOpenLogFile} size="small">
+                      {t('header.openFile')}
+                    </Button>
+                    <Button
+                      icon={<CloudServerOutlined />}
+                      onClick={() => setRemoteModalOpen(true)}
+                      size="small"
+                      type={remoteStatus?.status === 'connected' ? 'primary' : 'default'}
+                    >
+                      {t('header.remoteSsh')}
+                    </Button>
+                    <Dropdown menu={{ items: recentFilesMenuItems }} trigger={['click']}>
+                      <Button icon={<HistoryOutlined />} size="small">
+                        {t('header.recentFiles')} <DownOutlined style={{ fontSize: 10 }} />
+                      </Button>
+                    </Dropdown>
+                    <Button
+                      size="small"
+                      icon={
+                        <PushpinOutlined
+                          style={{
+                            color: Object.keys(bookmarkedLines).length > 0 ? '#eab308' : undefined
+                          }}
+                        />
+                      }
+                      onClick={() => setBookmarksDrawerOpen(true)}
+                    >
+                      {t('header.bookmarksDrawer')} ({Object.keys(bookmarkedLines).length})
+                    </Button>
+                    <Button
+                      type={showTimeline ? 'primary' : 'default'}
+                      size="small"
+                      icon={<BarChartOutlined />}
+                      onClick={() => setShowTimeline(!showTimeline)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center'
+                      }}
+                    >
+                      {t('header.toggleTimeline')}
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={
+                        <CodeOutlined style={{ color: sourceRootPath ? '#3b82f6' : undefined }} />
+                      }
+                      onClick={() => setIsSourceRootModalOpen(true)}
+                      title={sourceRootPath || t('idea.sourceRootTitle')}
+                    >
+                      Source Root
+                    </Button>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={isCollapsed ? <DownOutlined /> : <UpOutlined />}
+                      onClick={() => setIsCollapsed(!isCollapsed)}
+                      style={{
+                        color: isDark ? '#94a3b8' : '#64748b',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    />
+                  </Space>
                 </div>
               </Col>
               {!isCollapsed && (
                 <>
                   <Col span={24}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <Text style={styles.labelText}>Include Keywords:</Text>
+                      <Text style={styles.labelText}>{t('filter.includeKeywords')}:</Text>
                       <Input
                         value={includeKeywords}
                         onChange={(e) => setIncludeKeywords(e.target.value)}
-                        placeholder="e.g. error, warning"
+                        placeholder={t('filter.includePlaceholder')}
                         style={{ flex: 1, marginLeft: 8 }}
                       />
                       <Button
                         type={isIncludeCaseSensitive ? 'primary' : 'default'}
                         onClick={() => setIsIncludeCaseSensitive(!isIncludeCaseSensitive)}
                         style={{ marginLeft: 8, fontWeight: 'bold' }}
-                        title="Match Case"
+                        title={t('filter.caseSensitiveTooltip')}
                       >
-                        Aa
+                        {t('filter.caseSensitive')}
                       </Button>
                     </div>
                   </Col>
                   <Col span={24}>
                     <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <Text style={styles.labelText}>Exclude Keywords:</Text>
+                      <Text style={styles.labelText}>{t('filter.excludeKeywords')}:</Text>
                       <Input
                         value={excludeKeywords}
                         onChange={(e) => setExcludeKeywords(e.target.value)}
-                        placeholder="e.g. debug, info"
+                        placeholder={t('filter.excludePlaceholder')}
                         style={{ flex: 1, marginLeft: 8 }}
                       />
                       <Button
                         type={isExcludeCaseSensitive ? 'primary' : 'default'}
                         onClick={() => setIsExcludeCaseSensitive(!isExcludeCaseSensitive)}
                         style={{ marginLeft: 8, fontWeight: 'bold' }}
-                        title="Match Case"
+                        title={t('filter.caseSensitiveTooltip')}
                       >
-                        Aa
+                        {t('filter.caseSensitive')}
                       </Button>
                     </div>
                   </Col>
                   <Col span={24}>
-                    <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0 8px' }}>
-                      <Text style={styles.labelText}>Time Range:</Text>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '4px 8px'
+                      }}
+                    >
+                      <Text style={styles.labelText}>{t('filter.logLevels')}:</Text>
+                      <Space size={6} wrap style={{ flex: 1 }}>
+                        {(['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]).map((lvl) => {
+                          const isChecked = selectedLogLevels[lvl]
+                          const count = levelCounts[lvl] || 0
+                          return (
+                            <Tag.CheckableTag
+                              key={lvl}
+                              checked={isChecked}
+                              onChange={(checked) => {
+                                setSelectedLogLevels((prev) => ({ ...prev, [lvl]: checked }))
+                              }}
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: '4px',
+                                border: isChecked
+                                  ? undefined
+                                  : isDark
+                                    ? '1px solid #3f3f46'
+                                    : '1px solid #d4d4d8',
+                                fontSize: '12px',
+                                userSelect: 'none',
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span style={{ fontWeight: 600 }}>{lvl}</span>
+                              <span style={{ marginLeft: 4, opacity: 0.75, fontSize: '11px' }}>
+                                ({count})
+                              </span>
+                            </Tag.CheckableTag>
+                          )
+                        })}
+                        <Button
+                          size="small"
+                          type="link"
+                          onClick={() =>
+                            setSelectedLogLevels({
+                              ERROR: true,
+                              WARN: true,
+                              INFO: true,
+                              DEBUG: true,
+                              OTHER: true
+                            })
+                          }
+                          style={{ fontSize: 12, padding: '0 4px' }}
+                        >
+                          All
+                        </Button>
+                        <Button
+                          size="small"
+                          type="link"
+                          onClick={() =>
+                            setSelectedLogLevels({
+                              ERROR: true,
+                              WARN: true,
+                              INFO: false,
+                              DEBUG: false,
+                              OTHER: false
+                            })
+                          }
+                          style={{ fontSize: 12, padding: '0 4px', color: '#ef4444' }}
+                        >
+                          Errors & Warns
+                        </Button>
+                        <Button
+                          size="small"
+                          type="link"
+                          onClick={() =>
+                            setSelectedLogLevels({
+                              ERROR: false,
+                              WARN: false,
+                              INFO: false,
+                              DEBUG: false,
+                              OTHER: false
+                            })
+                          }
+                          style={{
+                            fontSize: 12,
+                            padding: '0 4px',
+                            color: isDark ? '#a1a1aa' : '#64748b'
+                          }}
+                        >
+                          {t('filter.clearFilters')}
+                        </Button>
+                      </Space>
+                    </div>
+                  </Col>
+                  <Col span={24}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0 8px'
+                      }}
+                    >
+                      <Text style={styles.labelText}>{t('filter.timeRange')}:</Text>
                       <DatePicker.TimePicker
                         value={startTime}
                         onChange={setStartTime}
@@ -1765,7 +2058,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                         style={{ width: 150 }}
                       />
                       <span style={{ margin: '0 4px', color: isDark ? '#94a3b8' : '#64748b' }}>
-                        to
+                        ~
                       </span>
                       <DatePicker.TimePicker
                         value={endTime}
@@ -1783,7 +2076,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                         }}
                       >
                         <Text style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}>
-                          Detected Format:
+                          {t('header.timestampFormat')}:
                         </Text>
                         <Dropdown
                           menu={{
@@ -1792,10 +2085,8 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                                 key: 'auto',
                                 label: (
                                   <span>
-                                    <b>Auto Detect</b>{' '}
-                                    {detectedFormat
-                                      ? `(${detectedFormat.name})`
-                                      : '(No format detected)'}
+                                    <b>{t('header.autoDetected')}</b>{' '}
+                                    {detectedFormat ? `(${detectedFormat.name})` : '(None)'}
                                   </span>
                                 ),
                                 onClick: () => setSelectedFormatId('auto')
@@ -1835,32 +2126,54 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                       </div>
                     </div>
                   </Col>
-
-
                 </>
               )}
             </Row>
           </div>
-          <div ref={logContainerRef} style={styles.logContainer} onScroll={handleScroll}>
-            <pre
-              ref={preRef}
-              onClick={handlePreClick}
-              onDoubleClick={handleDoubleClick}
-              onContextMenu={handleContextMenu}
-              style={{
-                margin: 0,
-                whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
-                wordBreak: wordWrap ? 'break-all' : 'normal'
-              }}
+          {showTimeline && (
+            <LogTimeline
+              lines={unfilteredTimeLines}
+              startTime={startTime}
+              endTime={endTime}
+              onSelectTimeRange={handleSelectTimelineTimeRange}
+              onResetTimeRange={handleResetTimelineTimeRange}
+              isDark={isDark}
             />
-          </div>
+          )}
+          <VirtualLogList
+            lines={filteredLines}
+            fontSize={fontSize}
+            wordWrap={wordWrap}
+            showLineNumbers={showLineNumbers}
+            maxLineDigits={maxLineDigits}
+            highlightWord={highlightWord}
+            searchKeyword={searchKeyword}
+            currentMatchIndex={currentMatchIndex}
+            markedLines={markedLines}
+            bookmarkedLines={bookmarkedLines}
+            targetFlashLine={targetFlashLine}
+            onToggleBookmark={handleToggleBookmark}
+            onContextMenu={(e, originalIndex, timestamp, lineText) => {
+              setContextMenu({
+                x: e.clientX,
+                y: e.clientY,
+                originalIndex,
+                timestamp,
+                lineText
+              })
+            }}
+            onScroll={handleScroll}
+            containerRef={logContainerRef}
+            isDark={isDark}
+          />
           {contextMenu && (
             <div
+              ref={contextMenuRef}
               className="custom-context-menu"
               style={{
                 position: 'fixed',
-                left: contextMenu.x,
-                top: contextMenu.y,
+                left: contextMenuPos.left,
+                top: contextMenuPos.top,
                 zIndex: 10000
               }}
             >
@@ -1878,7 +2191,9 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 <Space size={6}>
                   <span>📌</span>
                   <span>
-                    {bookmarkedLines[contextMenu.originalIndex] ? 'Unpin Line' : 'Pin Line (Bookmark)'}
+                    {bookmarkedLines[contextMenu.originalIndex]
+                      ? t('contextMenu.unpinLine')
+                      : t('contextMenu.pinLine')}
                   </span>
                 </Space>
               </div>
@@ -1892,7 +2207,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 >
                   <Space size={6}>
                     <TagOutlined style={{ color: '#eab308' }} />
-                    <span>Rename Bookmark</span>
+                    <span>{t('contextMenu.renameBookmark')}</span>
                   </Space>
                 </div>
               )}
@@ -1905,7 +2220,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                   }
                 }}
               >
-                Set as Start Time
+                {t('contextMenu.setStartTime')}
               </div>
               <div
                 className={`menu-item ${!contextMenu.timestamp ? 'disabled' : ''}`}
@@ -1916,14 +2231,17 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                   }
                 }}
               >
-                Set as End Time
+                {t('contextMenu.setEndTime')}
               </div>
               <div className="menu-item has-submenu">
-                Mark this line
+                {t('contextMenu.markHighlight')}
                 <div
                   className="submenu"
                   style={{
-                    left: contextMenu.x + 260 > window.innerWidth ? '-112px' : '138px'
+                    left: contextMenuPos.submenuPlacement.left,
+                    right: contextMenuPos.submenuPlacement.right,
+                    top: contextMenuPos.submenuPlacement.top,
+                    bottom: contextMenuPos.submenuPlacement.bottom
                   }}
                 >
                   {PRESET_COLORS.map((color) => {
@@ -1947,7 +2265,9 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                             borderLeft: `3px solid ${color.borderLeftColor || 'transparent'}`
                           }}
                         />
-                        <span style={{ flex: 1 }}>{color.name}</span>
+                        <span style={{ flex: 1 }}>
+                          {t(color.nameKey, { defaultValue: color.defaultName })}
+                        </span>
                         {isCurrentColor && (
                           <span style={{ fontSize: 10, color: '#3b82f6' }}>✓</span>
                         )}
@@ -1969,10 +2289,45 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                     }}
                     style={{ color: isDark ? '#f87171' : '#dc2626' }}
                   >
-                    Clear Mark
+                    {t('contextMenu.clearMark')}
                   </div>
                 </div>
               </div>
+              {(() => {
+                const stackRef = parseStackReference(contextMenu.lineText)
+                console.log('[IDEA Debug] lineText:', contextMenu.lineText)
+                console.log('[IDEA Debug] stackRef:', stackRef)
+                const menuLabel = stackRef
+                  ? t('contextMenu.openInIdea', {
+                      file: stackRef.fileName
+                    })
+                  : t('contextMenu.openInIdeaProject')
+
+                return (
+                  <>
+                    <div
+                      style={{
+                        height: 1,
+                        background: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)',
+                        margin: '4px 0'
+                      }}
+                    />
+                    <div
+                      className="menu-item"
+                      onClick={() => {
+                        handleOpenInIdea(stackRef?.fileName, stackRef?.className)
+                        setContextMenu(null)
+                      }}
+                    >
+                      <Space size={6}>
+                        <CodeOutlined style={{ color: '#3b82f6' }} />
+                        <span>{menuLabel}</span>
+                      </Space>
+                    </div>
+                  </>
+                )
+              })()}
+
             </div>
           )}
           {isTailSuspended && hasNewLogs && (
@@ -2001,8 +2356,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.05)'
               }}
             >
-              <DownOutlined style={{ animation: 'bounce 1s infinite' }} /> New logs available (Click
-              to scroll down)
+              <DownOutlined style={{ animation: 'bounce 1s infinite' }} /> New logs available
             </div>
           )}
           {/* Scroll Navigation Buttons */}
@@ -2036,7 +2390,6 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                   alignItems: 'center',
                   justifyContent: 'center'
                 }}
-                title="Scroll to Top (Ctrl+Home)"
               />
             )}
             {showScrollBottom && (
@@ -2058,7 +2411,6 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                   alignItems: 'center',
                   justifyContent: 'center'
                 }}
-                title="Scroll to Bottom (Ctrl+End)"
               />
             )}
           </div>
@@ -2066,7 +2418,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
             <div style={styles.searchBox}>
               <Input
                 id="search-input"
-                placeholder="Search..."
+                placeholder={t('search.placeholder')}
                 value={searchQuery}
                 onChange={handleSearchInputChange}
                 onKeyDown={handleSearchInputKeyDown}
@@ -2082,9 +2434,12 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                     }}
                   >
                     {searchMatchesCount > 0
-                      ? `${currentMatchIndex + 1}/${searchMatchesCount}`
+                      ? t('search.matchCount', {
+                          current: currentMatchIndex + 1,
+                          total: searchMatchesCount
+                        })
                       : searchQuery && searchKeyword === searchQuery
-                        ? '0/0'
+                        ? t('search.noMatches')
                         : ''}
                   </span>
                 }
@@ -2102,7 +2457,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 }}
                 disabled={searchMatchesCount === 0}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                title="Previous Match (Shift+F3)"
+                title={t('search.prevMatch')}
               />
               <Button
                 type="text"
@@ -2115,7 +2470,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 }}
                 disabled={searchMatchesCount === 0}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                title="Next Match (F3)"
+                title={t('search.nextMatch')}
               />
               <Button
                 type="text"
@@ -2123,7 +2478,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 icon={<CloseOutlined />}
                 onClick={handleCloseSearch}
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                title="Close (Esc)"
+                title={t('search.closeSearch')}
               />
             </div>
           )}
@@ -2135,7 +2490,35 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 v{appVersion}
               </Text>
             )}
-            <Text style={styles.footerText}>Found {matchCount} matches</Text>
+            <Text style={styles.footerText}>
+              {t('statusBar.matchesFound', { count: matchCount })}
+            </Text>
+            {remoteStatus && remoteStatus.status !== 'disconnected' && (
+              <Tag
+                color={
+                  remoteStatus.status === 'connected'
+                    ? 'success'
+                    : remoteStatus.status === 'connecting'
+                      ? 'processing'
+                      : 'error'
+                }
+                style={{ margin: 0 }}
+              >
+                {t('statusBar.sshConnectedTag', { name: remoteStatus.host || 'Remote' })}
+              </Tag>
+            )}
+            {remoteStatus?.status === 'connected' && (
+              <Button
+                type="link"
+                danger
+                size="small"
+                icon={<DisconnectOutlined />}
+                onClick={handleDisconnectRemote}
+                style={{ padding: '0 4px', fontSize: 12 }}
+              >
+                {t('header.disconnectSsh')}
+              </Button>
+            )}
             {updateTime && (
               <Space size={6} style={{ display: 'inline-flex', alignItems: 'center' }}>
                 <span
@@ -2149,54 +2532,40 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                   }}
                 />
                 <Text style={{ color: isDark ? '#34d399' : '#059669', fontSize: 12 }}>
-                  File updates on {updateTime} {timeAgoText}
+                  {t('statusBar.fileUpdated', { time: updateTime, ago: timeAgoText })}
                 </Text>
               </Space>
             )}
           </Space>
           <Space size="middle" style={{ display: 'flex', alignItems: 'center' }}>
-            <Button icon={<FileOutlined />} onClick={handleOpenLogFile} size="small">
-              Open Log File
-            </Button>
-            <Dropdown menu={{ items: recentFilesMenuItems }} trigger={['click']}>
-              <Button icon={<HistoryOutlined />} size="small">
-                Recent Files <DownOutlined style={{ fontSize: 10 }} />
-              </Button>
-            </Dropdown>
-            <Button
-              size="small"
-              icon={
-                <PushpinOutlined
-                  style={{
-                    color: Object.keys(bookmarkedLines).length > 0 ? '#eab308' : undefined
-                  }}
-                />
-              }
-              onClick={() => setBookmarksDrawerOpen(true)}
-            >
-              Bookmarks ({Object.keys(bookmarkedLines).length})
-            </Button>
             <Button
               type="text"
               size="small"
               onClick={handleCheckForUpdates}
               style={{ color: isDark ? '#94a3b8' : '#475569', padding: '0 4px', fontSize: 12 }}
             >
-              Check for Updates
+              {t('statusBar.checkForUpdates')}
             </Button>
             <Checkbox
               checked={tailMode}
               onChange={(e) => handleTailModeChange(e.target.checked)}
               style={{ color: isDark ? '#94a3b8' : '#475569' }}
             >
-              Tail Mode
+              {t('statusBar.tailMode')}
             </Checkbox>
             <Checkbox
               checked={wordWrap}
               onChange={(e) => setWordWrap(e.target.checked)}
               style={{ color: isDark ? '#94a3b8' : '#475569' }}
             >
-              Word Wrap
+              {t('statusBar.wordWrap')}
+            </Checkbox>
+            <Checkbox
+              checked={showLineNumbers}
+              onChange={(e) => setShowLineNumbers(e.target.checked)}
+              style={{ color: isDark ? '#94a3b8' : '#475569' }}
+            >
+              Line Numbers
             </Checkbox>
             <Radio.Group
               value={themeMode}
@@ -2205,13 +2574,28 @@ const LogViewer: React.FC<LogViewerProps> = () => {
               buttonStyle="solid"
               size="small"
             >
-              <Radio.Button value="dark">Dark</Radio.Button>
-              <Radio.Button value="light">Light</Radio.Button>
+              <Radio.Button value="dark">{t('statusBar.darkTheme')}</Radio.Button>
+              <Radio.Button value="light">{t('statusBar.lightTheme')}</Radio.Button>
             </Radio.Group>
+            <Dropdown
+              menu={{
+                items: [
+                  { key: 'en', label: '🇬🇧 English' },
+                  { key: 'zh', label: '🇨🇳 中文' }
+                ],
+                onClick: ({ key }) => handleLanguageChange(key as 'en' | 'zh')
+              }}
+              trigger={['click']}
+            >
+              <Button size="small" icon={<GlobalOutlined />}>
+                {currentLang === 'zh' ? '中文' : 'English'}{' '}
+                <DownOutlined style={{ fontSize: 10 }} />
+              </Button>
+            </Dropdown>
           </Space>
         </Footer>
         <Modal
-          title="Check for Updates"
+          title={t('updater.title')}
           open={updateModalVisible}
           onCancel={() => setUpdateModalVisible(false)}
           footer={null}
@@ -2227,30 +2611,38 @@ const LogViewer: React.FC<LogViewerProps> = () => {
             {updateStatus === 'checking' && (
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 <Spin size="large" />
-                <Text>Checking for updates...</Text>
+                <Text>{t('updater.checking')}</Text>
               </Space>
             )}
 
             {updateStatus === 'available' && (
-              <Space direction="vertical" size="middle" style={{ width: '100%', textAlign: 'left' }}>
+              <Space
+                direction="vertical"
+                size="middle"
+                style={{ width: '100%', textAlign: 'left' }}
+              >
                 <Text strong style={{ fontSize: 16 }}>
-                  A new version is available!
+                  {t('updater.available')}
                 </Text>
                 <div>
                   <Text style={{ display: 'block' }}>
-                    New Version: <strong style={{ color: '#3b82f6' }}>v{updateInfo?.version}</strong>
+                    {t('updater.newVersion', { version: updateInfo?.version })}
                   </Text>
                   {updateInfo?.releaseNotes && (
-                    <div style={{
-                      marginTop: 12,
-                      padding: 8,
-                      background: isDark ? '#18181c' : '#f5f5f7',
-                      borderRadius: 4,
-                      maxHeight: 150,
-                      overflowY: 'auto',
-                      border: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.06)',
-                      fontSize: 12
-                    }}>
+                    <div
+                      style={{
+                        marginTop: 12,
+                        padding: 8,
+                        background: isDark ? '#18181c' : '#f5f5f7',
+                        borderRadius: 4,
+                        maxHeight: 150,
+                        overflowY: 'auto',
+                        border: isDark
+                          ? '1px solid rgba(255,255,255,0.06)'
+                          : '1px solid rgba(0,0,0,0.06)',
+                        fontSize: 12
+                      }}
+                    >
                       <pre style={{ margin: 0, fontFamily: 'inherit', whiteSpace: 'pre-wrap' }}>
                         {updateInfo.releaseNotes}
                       </pre>
@@ -2259,9 +2651,11 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                 </div>
                 <div style={{ textAlign: 'right', marginTop: 12 }}>
                   <Space>
-                    <Button onClick={() => setUpdateModalVisible(false)}>Later</Button>
+                    <Button onClick={() => setUpdateModalVisible(false)}>
+                      {t('common.cancel')}
+                    </Button>
                     <Button type="primary" onClick={handleDownloadUpdate}>
-                      Download Update
+                      {t('updater.downloadNow')}
                     </Button>
                   </Space>
                 </div>
@@ -2272,12 +2666,12 @@ const LogViewer: React.FC<LogViewerProps> = () => {
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 <span style={{ fontSize: 40, color: '#10b981' }}>✓</span>
                 <Text strong style={{ fontSize: 16 }}>
-                  You are on the latest version!
+                  {t('updater.notAvailable')}
                 </Text>
-                <Text type="secondary">LogPrism v{appVersion} is up to date.</Text>
+                <Text type="secondary">{t('updater.currentVersion', { version: appVersion })}</Text>
                 <div style={{ textAlign: 'right', marginTop: 12, width: '100%' }}>
                   <Button type="primary" onClick={() => setUpdateModalVisible(false)}>
-                    OK
+                    {t('common.confirm')}
                   </Button>
                 </div>
               </Space>
@@ -2285,11 +2679,8 @@ const LogViewer: React.FC<LogViewerProps> = () => {
 
             {updateStatus === 'downloading' && (
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                <Text>Downloading update...</Text>
+                <Text>{t('updater.downloading')}</Text>
                 <Progress percent={downloadPercent} status="active" />
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Please do not close the application during the download.
-                </Text>
               </Space>
             )}
 
@@ -2297,14 +2688,16 @@ const LogViewer: React.FC<LogViewerProps> = () => {
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 <span style={{ fontSize: 40, color: '#10b981' }}>⚡</span>
                 <Text strong style={{ fontSize: 16 }}>
-                  Update Downloaded!
+                  {t('updater.downloaded')}
                 </Text>
-                <Text>The application needs to restart to apply the update.</Text>
+                <Text>{t('updater.downloadedMsg')}</Text>
                 <div style={{ textAlign: 'right', marginTop: 12, width: '100%' }}>
                   <Space>
-                    <Button onClick={() => setUpdateModalVisible(false)}>Later</Button>
+                    <Button onClick={() => setUpdateModalVisible(false)}>
+                      {t('common.cancel')}
+                    </Button>
                     <Button type="primary" onClick={handleInstallUpdate}>
-                      Restart and Install
+                      {t('updater.restartAndInstall')}
                     </Button>
                   </Space>
                 </div>
@@ -2315,14 +2708,16 @@ const LogViewer: React.FC<LogViewerProps> = () => {
               <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 <span style={{ fontSize: 40, color: '#ef4444' }}>⚠</span>
                 <Text strong style={{ fontSize: 16 }}>
-                  Update Failed
+                  {t('updater.errorTitle')}
                 </Text>
                 <Text type="danger" style={{ display: 'block', wordBreak: 'break-all' }}>
                   {updateErrorMsg}
                 </Text>
                 <div style={{ textAlign: 'right', marginTop: 12, width: '100%' }}>
                   <Space>
-                    <Button onClick={() => setUpdateModalVisible(false)}>Close</Button>
+                    <Button onClick={() => setUpdateModalVisible(false)}>
+                      {t('common.cancel')}
+                    </Button>
                     <Button type="primary" onClick={handleCheckForUpdates}>
                       Retry
                     </Button>
@@ -2345,7 +2740,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
               <Space size={8}>
                 <PushpinFilled style={{ color: '#eab308', fontSize: 16 }} />
                 <span style={{ fontWeight: 600, fontSize: 15 }}>
-                  Bookmarks & Pins ({Object.keys(bookmarkedLines).length})
+                  {t('bookmarks.title')} ({Object.keys(bookmarkedLines).length})
                 </span>
               </Space>
               {Object.keys(bookmarkedLines).length > 0 && (
@@ -2356,7 +2751,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                   onClick={handleClearAllBookmarks}
                   style={{ padding: 0 }}
                 >
-                  Clear All
+                  {t('bookmarks.clearAll')}
                 </Button>
               )}
             </div>
@@ -2376,7 +2771,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
             <Empty
               description={
                 <Text type="secondary" style={{ fontSize: 13 }}>
-                  No bookmarks added yet. Click 📍 on any log line or right-click to pin lines.
+                  {t('bookmarks.noBookmarks')}
                 </Text>
               }
               style={{ marginTop: 60 }}
@@ -2414,7 +2809,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                       >
                         <Space size={8} wrap style={{ flex: 1, minWidth: 0 }}>
                           <Text strong style={{ fontSize: 12, color: '#eab308' }}>
-                            #Line {bm.originalIndex + 1}
+                            {t('bookmarks.lineNum', { line: bm.originalIndex + 1 })}
                           </Text>
                           {bm.timestamp && (
                             <Text type="secondary" style={{ fontSize: 11 }}>
@@ -2439,7 +2834,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                                   setEditingBookmarkName(bm.name || '')
                                 }}
                                 style={{ color: isDark ? '#94a3b8' : '#64748b' }}
-                                title="Rename Bookmark"
+                                title={t('bookmarks.editLabelTitle')}
                               />
                               <Button
                                 type="text"
@@ -2447,7 +2842,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                                 icon={<DeleteOutlined />}
                                 onClick={() => handleRemoveBookmark(bm.originalIndex)}
                                 style={{ color: isDark ? '#94a3b8' : '#64748b' }}
-                                title="Remove Bookmark"
+                                title={t('common.delete')}
                               />
                             </>
                           ) : (
@@ -2459,7 +2854,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                                 onClick={() =>
                                   handleSaveBookmarkName(bm.originalIndex, editingBookmarkName)
                                 }
-                                title="Save Name"
+                                title={t('common.save')}
                               />
                               <Button
                                 type="default"
@@ -2469,20 +2864,17 @@ const LogViewer: React.FC<LogViewerProps> = () => {
                                   setEditingBookmarkIndex(null)
                                   setEditingBookmarkName('')
                                 }}
-                                title="Cancel"
+                                title={t('common.cancel')}
                               />
                             </>
                           )}
                         </Space>
                       </div>
                       {isEditing && (
-                        <div
-                          style={{ marginBottom: 6 }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        <div style={{ marginBottom: 6 }} onClick={(e) => e.stopPropagation()}>
                           <Input
                             size="small"
-                            placeholder="Enter custom bookmark name..."
+                            placeholder={t('bookmarks.editLabelPlaceholder')}
                             value={editingBookmarkName}
                             onChange={(e) => setEditingBookmarkName(e.target.value)}
                             onKeyDown={(e) => {
@@ -2519,7 +2911,7 @@ const LogViewer: React.FC<LogViewerProps> = () => {
           title={
             <Space>
               <TagOutlined style={{ color: '#eab308' }} />
-              <span>Rename Bookmark</span>
+              <span>{t('bookmarks.editLabelTitle')}</span>
             </Space>
           }
           open={renameModalVisible}
@@ -2533,10 +2925,13 @@ const LogViewer: React.FC<LogViewerProps> = () => {
         >
           <div style={{ paddingTop: 8 }}>
             <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>
-              Enter a custom name/tag for Line #{renameTargetIndex !== null ? renameTargetIndex + 1 : ''}:
+              {t('bookmarks.lineNum', {
+                line: renameTargetIndex !== null ? renameTargetIndex + 1 : ''
+              })}
+              :
             </Text>
             <Input
-              placeholder="e.g. Database Timeout, Error Start"
+              placeholder={t('bookmarks.editLabelPlaceholder')}
               value={renameInputVal}
               onChange={(e) => setRenameInputVal(e.target.value)}
               onKeyDown={(e) => {
@@ -2547,6 +2942,80 @@ const LogViewer: React.FC<LogViewerProps> = () => {
               autoFocus
             />
           </div>
+        </Modal>
+        <RemoteLogModal
+          open={remoteModalOpen}
+          onClose={() => setRemoteModalOpen(false)}
+          onConnect={handleConnectRemote}
+          activeConfig={activeRemoteConfig}
+        />
+        <Modal
+          title={
+            <Space>
+              <CodeOutlined style={{ color: '#3b82f6' }} />
+              <span>{t('idea.sourceRootTitle')}</span>
+            </Space>
+          }
+          open={isSourceRootModalOpen}
+          onCancel={() => setIsSourceRootModalOpen(false)}
+          onOk={() => setIsSourceRootModalOpen(false)}
+          footer={[
+            <Button key="close" type="primary" onClick={() => setIsSourceRootModalOpen(false)}>
+              {t('common.confirm')}
+            </Button>
+          ]}
+          destroyOnClose
+          width={560}
+        >
+          <Space direction="vertical" style={{ width: '100%', paddingTop: 8 }} size="middle">
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {t('idea.noSourceRootMsg')}
+            </Text>
+            <div>
+              <Text strong style={{ fontSize: 13, marginBottom: 4, display: 'block' }}>
+                {t('idea.sourceRootTitle')}
+              </Text>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Input
+                  value={sourceRootPath || ''}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setSourceRootPath(val)
+                    window.api.setIdeaConfig({ sourceRootPath: val })
+                  }}
+                  placeholder={t('idea.sourceRootPlaceholder')}
+                  style={{ flex: 1 }}
+                />
+                <Button icon={<FolderOpenOutlined />} onClick={handleBrowseSourceRoot}>
+                  {t('idea.browse')}
+                </Button>
+              </div>
+            </div>
+
+            <div>
+              <Text strong style={{ fontSize: 13, marginBottom: 4, display: 'block' }}>
+                {t('idea.exePathTitle')}
+              </Text>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Input
+                  value={ideaExecutablePath || ''}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setIdeaExecutablePath(val)
+                    window.api.setIdeaConfig({ ideaExecutablePath: val })
+                  }}
+                  placeholder={t('idea.exePathPlaceholder')}
+                  style={{ flex: 1 }}
+                />
+                <Button icon={<FileOutlined />} onClick={handleBrowseIdeaExecutable}>
+                  {t('idea.browse')}
+                </Button>
+                <Button type="dashed" onClick={handleAutoDetectIdea}>
+                  {t('idea.autoDetect')}
+                </Button>
+              </div>
+            </div>
+          </Space>
         </Modal>
       </Layout>
     </ConfigProvider>

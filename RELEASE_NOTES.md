@@ -7,6 +7,7 @@ All notable changes to **LogPrism** will be documented in this file.
 ## [1.1.0] - 2026-07-24
 
 ### 🚀 New Features & Enhancements
+
 - **Auto-Update Support**: Integrated automatic application update check powered by `electron-updater`.
 - **Version & Update Dialog**: Added version indicator in the status footer and interactive update check modal.
 - **Multi-Line Exception Handling**: Upgraded log parsing logic to properly group and filter multi-line log entries (e.g. Java/Node exception stack traces).
@@ -19,6 +20,7 @@ All notable changes to **LogPrism** will be documented in this file.
 - **UI Internationalization**: Full English user interface across controls, dialogs, status bar, and tooltips.
 
 ### 🐛 Bug Fixes & Reliability
+
 - Resolved an issue where multi-line log stack traces were stripped during keyword filtering.
 - Improved real-time `fs.watch` file monitoring efficiency for large log files.
 - Persisted active open file, zoom level, word wrap, and theme preferences across application restarts.
@@ -28,6 +30,7 @@ All notable changes to **LogPrism** will be documented in this file.
 ## [1.0.0] - 2026-07-18
 
 ### 🎉 Initial Release
+
 - Core Electron + React + TypeScript + Ant Design architecture.
 - Local log file opening and automatic file watching.
 - Keyword include/exclude filtering with case sensitivity toggle.

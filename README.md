@@ -50,10 +50,10 @@
 
 Built with a modern, industry-standard desktop development ecosystem:
 
-*   **Core Desktop Framework**: [Electron](https://www.electronjs.org/) (for native cross-platform window management and OS APIs)
-*   **UI Architecture**: [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) (for type safety and component-driven view layers)
-*   **Design System**: [Ant Design (v5)](https://ant.design/) (for seamless Dark/Light theme transitions and premium component aesthetics)
-*   **Build System**: [electron-vite](https://electron-vite.org/) (providing fast HMR during development and highly optimized production builds)
+- **Core Desktop Framework**: [Electron](https://www.electronjs.org/) (for native cross-platform window management and OS APIs)
+- **UI Architecture**: [React](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/) (for type safety and component-driven view layers)
+- **Design System**: [Ant Design (v5)](https://ant.design/) (for seamless Dark/Light theme transitions and premium component aesthetics)
+- **Build System**: [electron-vite](https://electron-vite.org/) (providing fast HMR during development and highly optimized production builds)
 
 ---
 
@@ -85,23 +85,26 @@ my-log-viewer/
 ## ✨ Core Features
 
 ### 📂 1. Log Loading & File System Watcher
-*   **Fast Loading**: Effortlessly load `.log`, `.txt`, and other text-based log files.
-*   **Session Restore**: Automatically records the last-opened file path and position, auto-restoring it upon application launch.
-*   **Real-time Tail/Watch**: Built-in monitoring (`fs.watch`) watches for changes; when new lines are appended by external systems, the viewer automatically refreshes.
-*   **Dynamic Title**: The window title updates automatically to reflect the file path (`LogPrism - [File Path]`).
+
+- **Fast Loading**: Effortlessly load `.log`, `.txt`, and other text-based log files.
+- **Session Restore**: Automatically records the last-opened file path and position, auto-restoring it upon application launch.
+- **Real-time Tail/Watch**: Built-in monitoring (`fs.watch`) watches for changes; when new lines are appended by external systems, the viewer automatically refreshes.
+- **Dynamic Title**: The window title updates automatically to reflect the file path (`LogPrism - [File Path]`).
 
 ### 🔍 2. Real-time Multi-Dimensional Filters
-*   **Include Keywords**: Filter for lines matching specific keywords (supports space-delimited words, exact phrase matching using double quotes `"abc def"`, and Case-Sensitivity toggle).
-*   **Exclude Keywords**: Drop noise instantly. Works with the same grouping syntax as inclusion.
-*   **Time-Range Filter**: Extract and filter log lines within specific timeframes. Instantly recognizes milliseconds (`HH:mm:ss.SSS`) from the start of log lines.
-*   **Instant Updates**: Filters calculate in real-time as you type—no manual search button required.
+
+- **Include Keywords**: Filter for lines matching specific keywords (supports space-delimited words, exact phrase matching using double quotes `"abc def"`, and Case-Sensitivity toggle).
+- **Exclude Keywords**: Drop noise instantly. Works with the same grouping syntax as inclusion.
+- **Time-Range Filter**: Extract and filter log lines within specific timeframes. Instantly recognizes milliseconds (`HH:mm:ss.SSS`) from the start of log lines.
+- **Instant Updates**: Filters calculate in real-time as you type—no manual search button required.
 
 ### 🎨 3. Premium Interactive UI/UX
-*   **Dual Themes**: Seamless switching between **Dark Mode** and **Light Mode**, persisted locally.
-*   **Smart Tail Mode**: Automatically auto-scrolls to the bottom when new logs stream in. If you scroll up to inspect code, Tail mode is suspended and a dynamic floating badge alerts you of incoming logs. Clicking the badge instantly snaps you to the bottom and resumes tracking.
-*   **Ctrl + Scroll Zooming**: Press `Ctrl` and scroll your mouse wheel to adjust the log font-size dynamically between `10px` and `40px` (persisted on close).
-*   **Row-Level Actions**: Right-click context menus allow developers to bookmark a line's time as the start/end filter range or apply custom colors (Red, Blue, Green, Orange, Purple highlights).
-*   **Speed Navigation**: Dynamic, blurred glassmorphic "Scroll to Top / Bottom" floating buttons fade in when needed and support keyboard shortcuts.
+
+- **Dual Themes**: Seamless switching between **Dark Mode** and **Light Mode**, persisted locally.
+- **Smart Tail Mode**: Automatically auto-scrolls to the bottom when new logs stream in. If you scroll up to inspect code, Tail mode is suspended and a dynamic floating badge alerts you of incoming logs. Clicking the badge instantly snaps you to the bottom and resumes tracking.
+- **Ctrl + Scroll Zooming**: Press `Ctrl` and scroll your mouse wheel to adjust the log font-size dynamically between `10px` and `40px` (persisted on close).
+- **Row-Level Actions**: Right-click context menus allow developers to bookmark a line's time as the start/end filter range or apply custom colors (Red, Blue, Green, Orange, Purple highlights).
+- **Speed Navigation**: Dynamic, blurred glassmorphic "Scroll to Top / Bottom" floating buttons fade in when needed and support keyboard shortcuts.
 
 ---
 
@@ -152,16 +155,17 @@ Contributions make the open-source community an amazing place to learn, inspire,
 
 1.  **Submit Issues**: Found a bug or have a suggestion? Please file a [New Issue](https://github.com/zhenxinglu/LogPrism/issues).
 2.  **Pull Requests**:
-    *   Fork the Project.
-    *   Create your Feature Branch (`git checkout -b feature/AmazingFeature`).
-    *   Commit your changes (`git commit -m 'feat: add some AmazingFeature'`).
-    *   Push to the Branch (`git push origin feature/AmazingFeature`).
-    *   Open a **Pull Request**.
+    - Fork the Project.
+    - Create your Feature Branch (`git checkout -b feature/AmazingFeature`).
+    - Commit your changes (`git commit -m 'feat: add some AmazingFeature'`).
+    - Push to the Branch (`git push origin feature/AmazingFeature`).
+    - Open a **Pull Request**.
 
 ### Guidelines
-*   Keep code clean and formatted according to ESLint and Prettier.
-*   Document any major feature additions in `feature.md`.
-*   Ensure that compilation passes locally (`npm run build:*`) before requesting reviews.
+
+- Keep code clean and formatted according to ESLint and Prettier.
+- Document any major feature additions in `feature.md`.
+- Ensure that compilation passes locally (`npm run build:*`) before requesting reviews.
 
 ---
 

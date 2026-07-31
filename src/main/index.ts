@@ -5,6 +5,10 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { autoUpdater } from 'electron-updater'
 import icon from '../../resources/icon.png?asset'
 
+import { logIndexer } from './logIndexer'
+import { sshManager, SshConfig } from './sshManager'
+import { openInIdea, detectIdeaExecutable } from './ideaLauncher'
+
 let watchedFilePath: string | null = null
 let mainWindow: BrowserWindow | null = null
 
@@ -19,8 +23,15 @@ function startWatchingFile(filePath: string, webContents: Electron.WebContents):
       if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
         try {
           if (existsSync(filePath)) {
-            const content = readFileSync(filePath, 'utf-8')
-            webContents.send('log-file-changed', content)
+            const indexInfo = logIndexer.updateIndexOnAppend(filePath)
+            const content = logIndexer.readFullContentIfSmall(filePath)
+            const latestIndex = indexInfo || logIndexer.getIndexInfo(filePath)
+            webContents.send('log-file-changed', {
+              filePath,
+              content,
+              totalLines: latestIndex?.totalLines || 0,
+              fileSize: latestIndex?.fileSize || 0
+            })
           }
         } catch (err) {
           console.error('Failed to read updated file:', err)
@@ -119,6 +130,19 @@ app.whenReady().then(() => {
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
 
+  // Read slice of lines on demand from indexed file
+  ipcMain.handle(
+    'read-log-lines',
+    async (_event, filePath: string, startLine: number, count: number) => {
+      return logIndexer.readLogLines(filePath, startLine, count)
+    }
+  )
+
+  // Index log file explicitly
+  ipcMain.handle('index-log-file', async (_event, filePath: string) => {
+    return await logIndexer.indexFile(filePath)
+  })
+
   // Open log file dialog and read content
   ipcMain.handle('open-log-file', async (event) => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -131,15 +155,23 @@ app.whenReady().then(() => {
     })
     if (canceled || filePaths.length === 0) return null
     try {
+      sshManager.disconnect()
       const filePath = filePaths[0]
-      const content = readFileSync(filePath, 'utf-8')
+      const indexInfo = await logIndexer.indexFile(filePath)
+      const content = logIndexer.readFullContentIfSmall(filePath)
       const window = BrowserWindow.fromWebContents(event.sender)
       if (window) {
         window.setTitle(`LogPrism - ${filePath}`)
       }
       const recentFiles = updateRecentFiles(filePath)
       startWatchingFile(filePath, event.sender)
-      return { filePath, content, recentFiles }
+      return {
+        filePath,
+        content,
+        totalLines: indexInfo.totalLines,
+        fileSize: indexInfo.fileSize,
+        recentFiles
+      }
     } catch (e) {
       return null
     }
@@ -152,13 +184,20 @@ app.whenReady().then(() => {
       const lastFilePath = config.lastFilePath
       const recentFiles: string[] = Array.isArray(config.recentFiles) ? config.recentFiles : []
       if (lastFilePath && existsSync(lastFilePath)) {
-        const content = readFileSync(lastFilePath, 'utf-8')
+        const indexInfo = await logIndexer.indexFile(lastFilePath)
+        const content = logIndexer.readFullContentIfSmall(lastFilePath)
         const window = BrowserWindow.fromWebContents(event.sender)
         if (window) {
           window.setTitle(`LogPrism - ${lastFilePath}`)
         }
         startWatchingFile(lastFilePath, event.sender)
-        return { filePath: lastFilePath, content, recentFiles }
+        return {
+          filePath: lastFilePath,
+          content,
+          totalLines: indexInfo.totalLines,
+          fileSize: indexInfo.fileSize,
+          recentFiles
+        }
       }
       return { filePath: null, content: null, recentFiles }
     } catch (e) {
@@ -170,17 +209,26 @@ app.whenReady().then(() => {
   // Open a log file by path directly
   ipcMain.handle('open-file-by-path', async (event, filePath: string) => {
     try {
+      sshManager.disconnect()
       if (!existsSync(filePath)) {
         return { success: false, error: 'File does not exist' }
       }
-      const content = readFileSync(filePath, 'utf-8')
+      const indexInfo = await logIndexer.indexFile(filePath)
+      const content = logIndexer.readFullContentIfSmall(filePath)
       const window = BrowserWindow.fromWebContents(event.sender)
       if (window) {
         window.setTitle(`LogPrism - ${filePath}`)
       }
       const recentFiles = updateRecentFiles(filePath)
       startWatchingFile(filePath, event.sender)
-      return { success: true, filePath, content, recentFiles }
+      return {
+        success: true,
+        filePath,
+        content,
+        totalLines: indexInfo.totalLines,
+        fileSize: indexInfo.fileSize,
+        recentFiles
+      }
     } catch (e) {
       return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
@@ -209,6 +257,45 @@ app.whenReady().then(() => {
     return true
   })
 
+  // SSH Remote Server IPC handlers
+  ipcMain.handle('ssh:test', async (_event, config: SshConfig) => {
+    return await sshManager.testConnection(config)
+  })
+
+  ipcMain.handle('ssh:list-dir', async (_event, config: SshConfig, dirPath?: string) => {
+    return await sshManager.listRemoteDirectory(config, dirPath)
+  })
+
+  ipcMain.handle('ssh:connect', async (event, config: SshConfig) => {
+    if (watchedFilePath) {
+      unwatchFile(watchedFilePath)
+      watchedFilePath = null
+    }
+    sshManager.connectAndTail(config, event.sender)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    if (window) {
+      window.setTitle(
+        `LogPrism - ssh://${config.username}@${config.host}:${config.port || 22}${config.remotePath}`
+      )
+    }
+    return true
+  })
+
+  ipcMain.handle('ssh:disconnect', async () => {
+    sshManager.disconnect()
+    return true
+  })
+
+  ipcMain.handle('ssh:get-profiles', async () => {
+    const config = readConfig()
+    return Array.isArray(config.sshProfiles) ? config.sshProfiles : []
+  })
+
+  ipcMain.handle('ssh:save-profiles', async (_event, profiles: SshConfig[]) => {
+    writeConfig({ sshProfiles: profiles })
+    return true
+  })
+
   // Configure auto-updater
   autoUpdater.autoDownload = false
   autoUpdater.logger = console
@@ -230,12 +317,13 @@ app.whenReady().then(() => {
   })
   autoUpdater.on('error', (err) => {
     console.error('AutoUpdater error:', err)
-    const rawMsg = err == null ? 'Unknown error' : (err.message || String(err))
+    const rawMsg = err == null ? 'Unknown error' : err.message || String(err)
     let userMsg = rawMsg
 
     // Friendly error handling for missing latest.yml (404)
     if (rawMsg.includes('Cannot find latest.yml') || rawMsg.includes('404')) {
-      userMsg = 'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to the GitHub Release artifacts.'
+      userMsg =
+        'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to the GitHub Release artifacts.'
     }
 
     mainWindow?.webContents.send('updater:error', userMsg)
@@ -266,6 +354,71 @@ app.whenReady().then(() => {
 
   // Get app version
   ipcMain.handle('get-app-version', () => app.getVersion())
+
+  // IntelliJ IDEA Integration handlers
+  ipcMain.handle(
+    'open-in-idea',
+    async (
+      _event,
+      { fileName, className }: { fileName?: string; className?: string } = {}
+    ) => {
+      const config = readConfig()
+      return await openInIdea(
+        config.sourceRootPath,
+        config.ideaExecutablePath,
+        fileName,
+        className
+      )
+    }
+  )
+
+  ipcMain.handle('select-source-directory', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Select Source Code Root Directory',
+      properties: ['openDirectory']
+    })
+    if (canceled || filePaths.length === 0) return null
+    const selectedPath = filePaths[0]
+    writeConfig({ sourceRootPath: selectedPath })
+    return selectedPath
+  })
+
+  ipcMain.handle('select-idea-executable', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: 'Select IntelliJ IDEA Executable (idea64.exe)',
+      filters: [
+        { name: 'Executables', extensions: ['exe', 'cmd', 'bat'] },
+        { name: 'All Files', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    })
+    if (canceled || filePaths.length === 0) return null
+    const selectedPath = filePaths[0]
+    writeConfig({ ideaExecutablePath: selectedPath })
+    return selectedPath
+  })
+
+  ipcMain.handle('get-idea-config', () => {
+    const config = readConfig()
+    return {
+      sourceRootPath: config.sourceRootPath || null,
+      ideaExecutablePath: config.ideaExecutablePath || null
+    }
+  })
+
+  ipcMain.handle('set-idea-config', (_event, data: { sourceRootPath?: string; ideaExecutablePath?: string }) => {
+    writeConfig(data)
+    return true
+  })
+
+  ipcMain.handle('detect-idea-executable', () => {
+    const config = readConfig()
+    const detected = detectIdeaExecutable(config.ideaExecutablePath)
+    if (detected && !config.ideaExecutablePath) {
+      writeConfig({ ideaExecutablePath: detected })
+    }
+    return detected
+  })
 
   createWindow()
 
