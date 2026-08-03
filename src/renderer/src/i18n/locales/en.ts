@@ -180,7 +180,9 @@ export const en = {
     close: 'Close',
     errorTitle: 'Update Error',
     noGithubMeta:
-      'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to GitHub Release artifacts.'
+      'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to GitHub Release artifacts.',
+    timeoutMsg: 'Update check timed out. Please check your network connection.',
+    devModeMsg: 'Running in development mode. Auto-update is disabled.'
   },
   common: {
     cancel: 'Cancel',

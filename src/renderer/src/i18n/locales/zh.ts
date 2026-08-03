@@ -177,9 +177,11 @@ export const zh = {
     restartAndInstall: '重启并安装',
     downloadNow: '立即下载',
     close: '关闭',
-    errorTitle: '更新错误',
+    errorTitle: 'Update Error',
     noGithubMeta:
-      '未在 GitHub Release 发布物中找到元数据文件 (latest.yml)。请确认构建产物上传完整。'
+      'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to GitHub Release artifacts.',
+    timeoutMsg: 'Update check timed out. Please check your network connection.',
+    devModeMsg: 'Running in development mode. Auto-update is disabled.'
   },
   common: {
     cancel: '取消',

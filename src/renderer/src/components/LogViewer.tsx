@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { ConfigProvider, theme, message, Modal, Progress, Button } from 'antd'
+import { ConfigProvider, theme, message, Modal, Progress, Button, Spin } from 'antd'
 import enUS from 'antd/locale/en_US'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
@@ -86,6 +86,41 @@ export default function LogViewer(): React.JSX.Element {
     setSavedLanguage(lang)
     setCurrentLang(lang)
     window.api.saveSettings({ language: lang })
+  }
+
+  const handleCheckForUpdates = async () => {
+    setUpdateModalVisible(true)
+    setUpdateStatus('checking')
+    setUpdateErrorMsg('')
+
+    const timeoutId = setTimeout(() => {
+      setUpdateStatus((prev) => {
+        if (prev === 'checking') {
+          setUpdateErrorMsg(
+            t('updater.timeoutMsg', {
+              defaultValue: 'Update check timed out. Please check your network connection.'
+            })
+          )
+          return 'error'
+        }
+        return prev
+      })
+    }, 15000)
+
+    try {
+      const res = await window.api.checkForUpdates()
+      clearTimeout(timeoutId)
+      if (res && res.error) {
+        setUpdateStatus('error')
+        setUpdateErrorMsg(res.message || t('updater.errorTitle'))
+      } else if (res && res.isDev) {
+        setUpdateStatus('not-available')
+      }
+    } catch (err: any) {
+      clearTimeout(timeoutId)
+      setUpdateStatus('error')
+      setUpdateErrorMsg(err?.message || t('updater.errorTitle'))
+    }
   }
 
   // Hook up updater events
@@ -483,7 +518,7 @@ export default function LogViewer(): React.JSX.Element {
                   setRecentFiles([])
                 }}
                 appVersion={appVersion}
-                onCheckForUpdates={() => setUpdateModalVisible(true)}
+                onCheckForUpdates={handleCheckForUpdates}
                 onToggleTheme={() => setThemeMode(isDarkMode ? 'light' : 'dark')}
               />
             </div>
@@ -526,7 +561,7 @@ export default function LogViewer(): React.JSX.Element {
                     setRecentFiles([])
                   }}
                   appVersion={appVersion}
-                  onCheckForUpdates={() => setUpdateModalVisible(true)}
+                  onCheckForUpdates={handleCheckForUpdates}
                   onToggleTheme={() => setThemeMode(isDarkMode ? 'light' : 'dark')}
                   onScrollSync={(percentage) => {
                     if (scrollSync) setScrollTopPercentageB(percentage)
@@ -564,7 +599,7 @@ export default function LogViewer(): React.JSX.Element {
                     setRecentFiles([])
                   }}
                   appVersion={appVersion}
-                  onCheckForUpdates={() => setUpdateModalVisible(true)}
+                  onCheckForUpdates={handleCheckForUpdates}
                   onToggleTheme={() => setThemeMode(isDarkMode ? 'light' : 'dark')}
                   onScrollSync={(percentage) => {
                     if (scrollSync) setScrollTopPercentageA(percentage)
@@ -605,6 +640,15 @@ export default function LogViewer(): React.JSX.Element {
               >
                 {t('updater.downloadNow')}
               </Button>
+            ) : updateStatus === 'error' ? (
+              <React.Fragment key="error-footer">
+                <Button key="retry" type="primary" onClick={handleCheckForUpdates}>
+                  {t('updater.checking').replace('...', '')}
+                </Button>
+                <Button key="close" onClick={() => setUpdateModalVisible(false)}>
+                  {t('updater.close')}
+                </Button>
+              </React.Fragment>
             ) : (
               <Button key="close" onClick={() => setUpdateModalVisible(false)}>
                 {t('updater.close')}
@@ -612,7 +656,12 @@ export default function LogViewer(): React.JSX.Element {
             )
           ]}
         >
-          {updateStatus === 'checking' && <p>{t('updater.checking')}</p>}
+          {(updateStatus === 'idle' || updateStatus === 'checking') && (
+            <div style={{ textAlign: 'center', padding: '20px 0' }}>
+              <Spin style={{ marginRight: 8 }} />
+              <span>{t('updater.checking')}</span>
+            </div>
+          )}
           {updateStatus === 'not-available' && <p>{t('updater.notAvailable')}</p>}
           {updateStatus === 'available' && (
             <div>
@@ -631,7 +680,11 @@ export default function LogViewer(): React.JSX.Element {
             </div>
           )}
           {updateStatus === 'downloaded' && <p>{t('updater.downloadedMsg')}</p>}
-          {updateStatus === 'error' && <p style={{ color: '#ff4d4f' }}>{updateErrorMsg}</p>}
+          {updateStatus === 'error' && (
+            <p style={{ color: '#ff4d4f', wordBreak: 'break-word' }}>
+              {updateErrorMsg || t('updater.errorTitle')}
+            </p>
+          )}
         </Modal>
       </div>
     </ConfigProvider>

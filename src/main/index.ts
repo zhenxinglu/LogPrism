@@ -358,10 +358,26 @@ app.whenReady().then(() => {
   // Updater IPC handlers
   ipcMain.handle('updater:check', async () => {
     try {
-      return await autoUpdater.checkForUpdates()
+      if (is.dev || !app.isPackaged) {
+        console.log('App is in dev mode; updater check skipped.')
+        mainWindow?.webContents.send('updater:not-available')
+        return { isDev: true, message: 'Running in development mode. Auto-update is disabled.' }
+      }
+      const result = await autoUpdater.checkForUpdates()
+      if (!result) {
+        mainWindow?.webContents.send('updater:not-available')
+      }
+      return result
     } catch (err) {
       console.error('Error checking updates:', err)
-      return { error: true, message: err instanceof Error ? err.message : String(err) }
+      const rawMsg = err == null ? 'Unknown error' : err instanceof Error ? err.message : String(err)
+      let userMsg = rawMsg
+      if (rawMsg.includes('Cannot find latest.yml') || rawMsg.includes('404')) {
+        userMsg =
+          'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to GitHub Release artifacts.'
+      }
+      mainWindow?.webContents.send('updater:error', userMsg)
+      return { error: true, message: userMsg }
     }
   })
 

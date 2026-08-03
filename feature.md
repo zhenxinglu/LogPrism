@@ -78,28 +78,72 @@
   - [x] 提供交互式更新模态弹窗（Modal），涵盖新版本 Changelog 显示、下载进度条（Progress bar）及一键 "Restart and Install" 重启安装体验。
   - [x] 包含完善的错误捕捉与友好提示（如缺少 GitHub `latest.yml` 时的针对性提示）。
 - [x] **启动窗口最大化（Maximized Window on Launch）**：
-  - [x] 应用启动时在 `ready-to-show` 事件中自动调取 `mainWindow.maximize()`，使主窗口在首次呈现时即处于最大化状态，提供开箱即用的宽广日志视图体验。
-- [x] **界面全英文标准化（Full English UI Standard）**：
-  - [x] 应用的所有控件、按钮、标签、右键菜单、操作提示及弹窗说明全面采用英文表达，确保用户界面风格统一规范。
-- [x] **国际化支持（Internationalization / i18n）**：
-  - [x] 基于 `i18next` 与 `react-i18next` 搭建多语言架构，完整支持 **英文 (English)** 与 **中文 (Chinese)** 界面切换。
-  - [x] 深度集成 Ant Design `ConfigProvider` 组件，实现 Modal 弹窗、DatePicker 时间选择器、Popconfirm 确认框等底层 UI 组件语言同步切换。
-  - [x] 底部状态栏提供语言切换入口（Dropdown: English / 中文），语言偏好通过 `localStorage` 与 `config.json` 自动持久化保存。
-  - [x] 默认 UI 语言保持为英文 (English)，同时为后续扩展拓展更多语言包打下坚实基础。
+  - [x] 应用启动时在 `ready-to-show` 事件中自动调取 `mainWindow.maximize()`，使主窗口在�## 5. 开发顺序建议优先级 (Recommended Development Priority)
 
-## 4. 规划中与待实现功能（新 Feature 候选列表）
+为了使 LogPrism 成为最专业的日志查看和分析软件，针对当前尚未实现的 13 项功能，结合**用户排查价值**与**开发实现难度**，建议按以下优先级层次推进后续开发：
 
-### 核心日志过滤与分析增强
+---
 
-- [x] **日志级别智能提取与过滤（Log Level Filtering & Highlighting）**：
-  - 自动检测日志行中的级别（如 `DEBUG` / `INFO` / `WARN` / `ERROR` / `FATAL`）。
-  - 在过滤器面板提供复选框（例如：`[ ] ERROR`、`[ ] WARN` 等），使用户可一键过滤。
-  - 对不同级别的日志进行行级背景色微调或文本着色（如 `ERROR` 标记为微弱红底或文字呈红色）。
-- [ ] **正则表达式过滤支持（Regex Filtering）**：
-  - 在 Include/Exclude Keywords 输入框旁，添加正则表达式开关（Regex）。
-  - 启用后，将输入内容作为正则表达式解析和计算，支持更复杂的匹配逻辑。
-- [x] **自定义时间格式解析与自动检测（Custom Timestamp Format Auto-Detection & Parsing）**：
-  - 自动检测打开的日志文件所使用的日期格式（支持 `YYYY-MM-DD HH:mm:ss.SSS`、`ISO 8601`、`DD/MMM/YYYY:HH:mm:ss`、`MMM DD HH:mm:ss`、`HH:mm:ss` 等格式），并使用该格式智能分析过滤日志。
+### 🔴 P0: 核心刚需与高频排查能力 (Immediate Next Steps - Critical)
+_日常故障排查中使用频率最高、开发投入产出比（ROI）极高的核心刚需功能。_
+
+1. **正则表达式过滤支持 (Regex Filtering)**
+   - **核心价值**：满足高级开发者与运维人员复杂的文本模式匹配（如 IP、错误码、特定 ID 组合）需求。
+   - **实现难度**：低（在关键词过滤器中扩展正则解析与开关控制）。
+2. **上下文视图 (Context View - Before/After Lines)**
+   - **核心价值**：过滤出特定报错后，允许直接展开查看该行前 N 行与后 N 行的完整上下文日志，无需反复重置或清除过滤条件。
+   - **实现难度**：中（基于现有日志索引提供展开/折叠上下文视图）。
+3. **导出过滤后的日志 (Export Filtered Logs)**
+   - **核心价值**：将筛选后的精简报错日志保存为新文件，便于团队沟通、存档或提交 Bug 单。
+   - **实现难度**：低（结合 Electron 文件对话框写入过滤后的日志数据）。
+
+---
+
+### 🟡 P1: 排查体验提效与格式化 (High Priority - Productivity Boost)
+_解决典型排查痛点，大幅提升超长报文、大流量报错日志的分析效率。_
+
+4. **内嵌长文本与报文格式化 (Embedded Payload Formatting)**
+   - **核心价值**：针对日志行中嵌套的超长单行 JSON、XML 或 SQL 语句，提供右键手风琴美化展开与高亮。
+   - **实现难度**：中（行级内嵌 JSON/XML 美化视图与语法高亮）。
+5. **日志智能聚合与降噪 (Log Clustering & Pattern Recognition)**
+   - **核心价值**：面对生产环境高频刷屏报错，自动折叠相似堆栈并展示频次统计（如：`NullPointerException (Occurred 500 times)`），防止关键日志被淹没。
+   - **实现难度**：中高（需要日志模式提取与相似度聚类算法）。
+
+---
+
+### 🟢 P2: 实时监控、安全与团队协同 (Medium Priority - Monitoring, Security & Collaboration)
+_扩展实时监控告警能力、隐私安全保护及团队现场复刻能力。_
+
+6. **实时监控告警触发器 (Real-time Alerting Triggers)**
+   - **核心价值**：Tail 实时追踪模式下，匹配指定正则或错误频率阈值时触发桌面原生通知或音效提示。
+   - **实现难度**：中（集成 Electron System Notification 与音效触发）。
+7. **日志脱敏与数据遮罩 (Data Anonymization / Masking)**
+   - **核心价值**：一键开启敏感数据（手机号、身份证、Token、密码等）正则遮罩脱敏，确保导出或分享日志时不泄露隐私。
+   - **实现难度**：中（正则替换规则引擎与脱敏开关）。
+8. **排查现场快照与分享 (Session Snapshot & Share)**
+   - **核心价值**：将打开的文件/远程配置、过滤条件、书签 Pins 及标记高亮导出为 `.lpconfig` 快照文件，方便团队一键复刻问题现场。
+   - **实现难度**：中（状态序列化与反序列化导入/导出机制）。
+
+---
+
+### 🔵 P3: 前沿智能化与高级定制 (Future Exploration & Advanced Features)
+_具有较高创新价值、探索性或面向特定场景/特定用户的定制功能。_
+
+9. **AI 异常诊断助手 (AI Error Copilot)**
+   - **核心价值**：接入 LLM 大模型自动读取 Stack Trace 堆栈上下文，智能分析报错根因并给出修复建议。
+   - **实现难度**：中（LLM API 接入、 Prompt 模板设计与 API Key 配置管理）。
+10. **高级 DSL 搜索语言 (Advanced Search DSL)**
+    - **核心价值**：支持形如 `level:ERROR AND timestamp>now-1h AND msg:timeout` 的复杂结构化查询。
+    - **实现难度**：高（需要设计 AST 语法解析器与过滤器引擎转换）。
+11. **离线模式 (Offline Mode)**
+    - **核心价值**：针对 SSH 远程日志，在网络断开时保留本地缓存供分析，并在网络恢复后自动同步。
+    - **实现难度**：中（本地 Stream 缓存与断线重连同步逻辑）。
+12. **主题自定义与编辑 (Customizable Themes)**
+    - **核心价值**：提供主题编辑器，支持用户自定义配色方案、字体及玻璃拟态效果。
+    - **实现难度**：中（CSS 变量动态编辑器与主题导出/导入）。
+13. **无障碍辅助支持 (Accessibility Support - WCAG 2.1 AA)**
+    - **核心价值**：完善全键盘导航与 ARIA 标签，满足无障碍合规需求。
+    - **实现难度**：中高（虚拟列表与复杂 DOM 节点的 ARIA 增强）。分析过滤日志。
   - 在 "Time Range:" 控制栏右侧实时动态展示系统检测到的日志时间格式 Badge/Tag，并支持手动切换格式。
 
 ### 视图与导航交互优化
