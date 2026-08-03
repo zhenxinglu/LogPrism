@@ -64,12 +64,12 @@ export const zh = {
     autoDetectFailed: '未能自动找到 idea64.exe，请手动点击浏览选择。'
   },
   search: {
-    placeholder: '查找日志内容... (Ctrl+F / F3)',
-    matchCount: '第 {{current}} 项，共 {{total}} 项',
-    noMatches: '未找到匹配项',
-    prevMatch: '上一个 (Shift+F3)',
-    nextMatch: '下一个 (F3)',
-    closeSearch: '关闭 (Esc)'
+    placeholder: 'Find in log... (Ctrl+F / F3)',
+    matchCount: '{{current}} of {{total}}',
+    noMatches: '0 matches',
+    prevMatch: 'Previous (Shift+F3)',
+    nextMatch: 'Next (F3)',
+    closeSearch: 'Close (Esc)'
   },
   statusBar: {
     matchesFound: '匹配到 {{count}} 条日志',
@@ -187,5 +187,27 @@ export const zh = {
     copy: '复制',
     copied: '已复制到剪贴板',
     loading: '加载中...'
+  },
+  tabs: {
+    newTab: '新建标签页',
+    closeTab: '关闭标签页',
+    closeOthers: '关闭其他标签页',
+    closeAll: '关闭所有标签页',
+    untitled: '未命名日志',
+    openLocalFile: '打开本地文件...',
+    connectRemoteSsh: '连接远程 SSH...'
+  },
+  splitView: {
+    title: '分屏对比',
+    single: '单栏视图',
+    horizontal: '左右分屏对比',
+    vertical: '上下分屏对比',
+    syncScroll: '同步滚动',
+    syncScrollOn: '已开启同步滚动',
+    syncScrollOff: '未开启同步滚动',
+    paneA: '分屏 A',
+    paneB: '分屏 B',
+    activePane: '当前分屏',
+    selectTabPrompt: '请选择要在分屏中展示的日志'
   }
 }

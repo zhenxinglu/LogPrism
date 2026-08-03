@@ -39,7 +39,7 @@ interface RemoteLogModalProps {
   open: boolean
   onClose: () => void
   onConnect: (config: SshConfig) => void
-  activeConfig: SshConfig | null
+  activeConfig?: SshConfig | null
 }
 
 const NEW_PROFILE_ID = 'new_profile'

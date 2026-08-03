@@ -46,6 +46,9 @@ const api = {
   ): Promise<{ filePath: string; fileSize: number; totalLines: number }> => {
     return ipcRenderer.invoke('index-log-file', filePath)
   },
+  unwatchLogFile: async (filePath: string): Promise<boolean> => {
+    return ipcRenderer.invoke('unwatch-log-file', filePath)
+  },
   getRecentFiles: async (): Promise<string[]> => {
     return ipcRenderer.invoke('get-recent-files')
   },
@@ -160,6 +163,7 @@ const api = {
   }): Promise<{
     success: boolean
     filePath?: string
+    fileFound?: boolean
     reason?: 'NO_SOURCE_ROOT' | 'INVALID_SOURCE_ROOT' | 'FILE_NOT_FOUND' | 'SHELL_ERROR'
     message?: string
   }> => {

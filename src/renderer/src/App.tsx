@@ -1,7 +1,12 @@
 import LogViewer from './components/LogViewer'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 function App(): React.JSX.Element {
-  return <LogViewer />
+  return (
+    <ErrorBoundary>
+      <LogViewer />
+    </ErrorBoundary>
+  )
 }
 
 export default App

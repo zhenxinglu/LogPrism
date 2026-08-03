@@ -1,12 +1,8 @@
 import React, { useMemo, useState, useRef, useCallback } from 'react'
-import { Typography, Tag, Space, Button, Tooltip } from 'antd'
+import { Typography, Space, Button, Tooltip } from 'antd'
 import {
   BarChartOutlined,
-  ReloadOutlined,
-  WarningOutlined,
-  CloseCircleOutlined,
-  InfoCircleOutlined,
-  BugOutlined
+  ReloadOutlined
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { useTranslation } from 'react-i18next'
@@ -25,6 +21,7 @@ export interface LogTimelineProps {
   lines: LogLineData[]
   startTime: Dayjs | null
   endTime: Dayjs | null
+  selectedLogLevels?: Record<LogLevel, boolean>
   onSelectTimeRange: (start: Dayjs, end: Dayjs) => void
   onResetTimeRange: () => void
   isDark: boolean
@@ -45,16 +42,34 @@ interface TimeBucket {
 }
 
 // Regex patterns to detect log levels
-const ERROR_REGEX = /\b(error|fatal|err|exception|fail|failed|severe|critical)\b/i
-const WARN_REGEX = /\b(warn|warning)\b/i
-const INFO_REGEX = /\b(info|notice)\b/i
-const DEBUG_REGEX = /\b(debug|trace|verbose)\b/i
+const HEADER_UPPER_LEVEL_REGEX = /\b(ERROR|FATAL|SEVERE|CRITICAL|WARN|WARNING|INFO|NOTICE|DEBUG|TRACE|VERBOSE)\b/
+const ALL_LEVELS_REGEX = /\b(error|fatal|severe|critical|err|exception|fail|failed|warn|warning|info|notice|debug|trace|verbose)\b/gi
 
 export const detectLogLevel = (text: string): LogLevel => {
-  if (ERROR_REGEX.test(text)) return 'ERROR'
-  if (WARN_REGEX.test(text)) return 'WARN'
-  if (INFO_REGEX.test(text)) return 'INFO'
-  if (DEBUG_REGEX.test(text)) return 'DEBUG'
+  if (!text) return 'OTHER'
+
+  // Step 1: Check header (first 120 chars) for explicit uppercase level tokens (e.g. WARN, ERROR, INFO)
+  const headerText = text.slice(0, 120)
+  const upperMatch = HEADER_UPPER_LEVEL_REGEX.exec(headerText)
+  if (upperMatch) {
+    const token = upperMatch[1]
+    if (/^(ERROR|FATAL|SEVERE|CRITICAL)$/.test(token)) return 'ERROR'
+    if (/^(WARN|WARNING)$/.test(token)) return 'WARN'
+    if (/^(INFO|NOTICE)$/.test(token)) return 'INFO'
+    if (/^(DEBUG|TRACE|VERBOSE)$/.test(token)) return 'DEBUG'
+  }
+
+  // Step 2: Fall back to first matching level keyword anywhere in the text
+  ALL_LEVELS_REGEX.lastIndex = 0
+  const match = ALL_LEVELS_REGEX.exec(text)
+  if (match) {
+    const token = match[1].toLowerCase()
+    if (/^(error|fatal|severe|critical|err|exception|fail|failed)$/.test(token)) return 'ERROR'
+    if (/^(warn|warning)$/.test(token)) return 'WARN'
+    if (/^(info|notice)$/.test(token)) return 'INFO'
+    if (/^(debug|trace|verbose)$/.test(token)) return 'DEBUG'
+  }
+
   return 'OTHER'
 }
 
@@ -75,19 +90,21 @@ export const LogTimeline: React.FC<LogTimelineProps> = ({
   lines,
   startTime,
   endTime,
+  selectedLogLevels,
   onSelectTimeRange,
   onResetTimeRange,
   isDark
 }) => {
   const { t } = useTranslation()
   const [hoveredBucket, setHoveredBucket] = useState<TimeBucket | null>(null)
-  const [visibleLevels, setVisibleLevels] = useState<Record<LogLevel, boolean>>({
+
+  const activeLevels = selectedLogLevels || {
     ERROR: true,
     WARN: true,
     INFO: true,
     DEBUG: true,
     OTHER: true
-  })
+  }
 
   const timelineContainerRef = useRef<HTMLDivElement>(null)
   const [dragStartPercent, setDragStartPercent] = useState<number | null>(null)
@@ -129,32 +146,27 @@ export const LogTimeline: React.FC<LogTimelineProps> = ({
 
     let minMs = timestampedItems[0].ms
     let maxMs = timestampedItems[0].ms
+    timestampedItems.forEach((item) => {
+      if (item.ms < minMs) minMs = item.ms
+      if (item.ms > maxMs) maxMs = item.ms
+    })
 
-    for (let i = 1; i < timestampedItems.length; i++) {
-      const ms = timestampedItems[i].ms
-      if (ms < minMs) minMs = ms
-      if (ms > maxMs) maxMs = ms
-    }
-
-    // Expand span if min === max
     if (minMs === maxMs) {
-      minMs = minMs - 30000 // -30s
-      maxMs = maxMs + 30000 // +30s
+      minMs = minMs - 30000
+      maxMs = maxMs + 30000
     }
 
     const NUM_BUCKETS = 60
-    const span = maxMs - minMs
-    const bucketWidthMs = span / NUM_BUCKETS
-
+    const timeSpan = maxMs - minMs
     const bucketList: TimeBucket[] = Array.from({ length: NUM_BUCKETS }, (_, i) => {
-      const bStart = minMs + i * bucketWidthMs
-      const bEnd = minMs + (i + 1) * bucketWidthMs
+      const sMs = minMs + (i * timeSpan) / NUM_BUCKETS
+      const eMs = minMs + ((i + 1) * timeSpan) / NUM_BUCKETS
       return {
         index: i,
-        startTimeMs: bStart,
-        endTimeMs: bEnd,
-        startTimeStr: dayjs(bStart).format('HH:mm:ss'),
-        endTimeStr: dayjs(bEnd).format('HH:mm:ss'),
+        startTimeMs: sMs,
+        endTimeMs: eMs,
+        startTimeStr: dayjs(sMs).format('HH:mm:ss'),
+        endTimeStr: dayjs(eMs).format('HH:mm:ss'),
         totalCount: 0,
         errorCount: 0,
         warnCount: 0,
@@ -165,17 +177,19 @@ export const LogTimeline: React.FC<LogTimelineProps> = ({
     })
 
     timestampedItems.forEach(({ ms, level }) => {
-      let bIdx = Math.floor((ms - minMs) / bucketWidthMs)
+      let bIdx = Math.floor(((ms - minMs) / timeSpan) * NUM_BUCKETS)
       if (bIdx < 0) bIdx = 0
       if (bIdx >= NUM_BUCKETS) bIdx = NUM_BUCKETS - 1
 
       const bucket = bucketList[bIdx]
-      bucket.totalCount++
-      if (level === 'ERROR') bucket.errorCount++
-      else if (level === 'WARN') bucket.warnCount++
-      else if (level === 'INFO') bucket.infoCount++
-      else if (level === 'DEBUG') bucket.debugCount++
-      else bucket.otherCount++
+      if (bucket) {
+        bucket.totalCount++
+        if (level === 'ERROR') bucket.errorCount++
+        else if (level === 'WARN') bucket.warnCount++
+        else if (level === 'INFO') bucket.infoCount++
+        else if (level === 'DEBUG') bucket.debugCount++
+        else bucket.otherCount++
+      }
     })
 
     return {
@@ -198,15 +212,15 @@ export const LogTimeline: React.FC<LogTimelineProps> = ({
     let max = 1
     buckets.forEach((b) => {
       let count = 0
-      if (visibleLevels.ERROR) count += b.errorCount
-      if (visibleLevels.WARN) count += b.warnCount
-      if (visibleLevels.INFO) count += b.infoCount
-      if (visibleLevels.DEBUG) count += b.debugCount
-      if (visibleLevels.OTHER) count += b.otherCount
+      if (activeLevels.ERROR) count += b.errorCount
+      if (activeLevels.WARN) count += b.warnCount
+      if (activeLevels.INFO) count += b.infoCount
+      if (activeLevels.DEBUG) count += b.debugCount
+      if (activeLevels.OTHER) count += b.otherCount
       if (count > max) max = count
     })
     return max
-  }, [buckets, visibleLevels])
+  }, [buckets, activeLevels])
 
   // Active time window selection calculation
   const activeOverlayPercent = useMemo(() => {
@@ -235,14 +249,6 @@ export const LogTimeline: React.FC<LogTimelineProps> = ({
 
     return { startPct, endPct, isFiltered }
   }, [startTime, endTime, globalMinMs, globalMaxMs])
-
-  // Handle Level Tag toggle
-  const toggleLevel = (level: LogLevel) => {
-    setVisibleLevels((prev) => ({
-      ...prev,
-      [level]: !prev[level]
-    }))
-  }
 
   // Handle bucket click
   const handleBucketClick = (bucket: TimeBucket) => {
@@ -346,7 +352,7 @@ export const LogTimeline: React.FC<LogTimelineProps> = ({
         userSelect: 'none'
       }}
     >
-      {/* Header & Badges */}
+      {/* Header & Reset Zoom Button */}
       <div
         style={{
           display: 'flex',
@@ -368,62 +374,19 @@ export const LogTimeline: React.FC<LogTimelineProps> = ({
           </Text>
         </Space>
 
-        <Space size={6} wrap>
-          {/* Level Badges */}
-          <Tag
-            color={visibleLevels.ERROR ? 'red' : 'default'}
-            style={{ cursor: 'pointer', margin: 0 }}
-            onClick={() => toggleLevel('ERROR')}
+        {activeOverlayPercent?.isFiltered && (
+          <Button
+            type="primary"
+            ghost
+            danger
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={onResetTimeRange}
+            style={{ fontSize: 11, height: 22, padding: '0 8px' }}
           >
-            <CloseCircleOutlined style={{ marginRight: 4 }} />
-            {t('timeline.levelError')}: <b>{totalStats.error}</b>
-          </Tag>
-          <Tag
-            color={visibleLevels.WARN ? 'warning' : 'default'}
-            style={{ cursor: 'pointer', margin: 0 }}
-            onClick={() => toggleLevel('WARN')}
-          >
-            <WarningOutlined style={{ marginRight: 4 }} />
-            {t('timeline.levelWarn')}: <b>{totalStats.warn}</b>
-          </Tag>
-          <Tag
-            color={visibleLevels.INFO ? 'blue' : 'default'}
-            style={{ cursor: 'pointer', margin: 0 }}
-            onClick={() => toggleLevel('INFO')}
-          >
-            <InfoCircleOutlined style={{ marginRight: 4 }} />
-            {t('timeline.levelInfo')}: <b>{totalStats.info}</b>
-          </Tag>
-          <Tag
-            color={visibleLevels.DEBUG ? 'purple' : 'default'}
-            style={{ cursor: 'pointer', margin: 0 }}
-            onClick={() => toggleLevel('DEBUG')}
-          >
-            <BugOutlined style={{ marginRight: 4 }} />
-            {t('timeline.levelDebug')}: <b>{totalStats.debug}</b>
-          </Tag>
-          <Tag
-            color={visibleLevels.OTHER ? 'cyan' : 'default'}
-            style={{ cursor: 'pointer', margin: 0 }}
-            onClick={() => toggleLevel('OTHER')}
-          >
-            {t('timeline.levelOther')}: <b>{totalStats.other}</b>
-          </Tag>
-
-          {activeOverlayPercent?.isFiltered && (
-            <Button
-              type="primary"
-              ghost
-              danger
-              size="small"
-              icon={<ReloadOutlined />}
-              onClick={onResetTimeRange}
-              style={{ fontSize: 11, height: 22, padding: '0 8px' }}
-            >
-              {t('timeline.resetZoom')}
-            </Button>
-          )}
-        </Space>
+            {t('timeline.resetZoom')}
+          </Button>
+        )}
       </div>
 
       {/* Mini-map Timeline Bar Chart */}
@@ -487,11 +450,11 @@ export const LogTimeline: React.FC<LogTimelineProps> = ({
 
           {/* Stacked Histogram Bars */}
           {buckets.map((b) => {
-            const errH = visibleLevels.ERROR ? (b.errorCount / maxBucketCount) * 100 : 0
-            const warnH = visibleLevels.WARN ? (b.warnCount / maxBucketCount) * 100 : 0
-            const infoH = visibleLevels.INFO ? (b.infoCount / maxBucketCount) * 100 : 0
-            const dbgH = visibleLevels.DEBUG ? (b.debugCount / maxBucketCount) * 100 : 0
-            const othH = visibleLevels.OTHER ? (b.otherCount / maxBucketCount) * 100 : 0
+            const errH = activeLevels.ERROR ? (b.errorCount / maxBucketCount) * 100 : 0
+            const warnH = activeLevels.WARN ? (b.warnCount / maxBucketCount) * 100 : 0
+            const infoH = activeLevels.INFO ? (b.infoCount / maxBucketCount) * 100 : 0
+            const dbgH = activeLevels.DEBUG ? (b.debugCount / maxBucketCount) * 100 : 0
+            const othH = activeLevels.OTHER ? (b.otherCount / maxBucketCount) * 100 : 0
 
             const totalH = Math.min(100, errH + warnH + infoH + dbgH + othH)
 

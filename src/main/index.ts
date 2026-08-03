@@ -9,21 +9,25 @@ import { logIndexer } from './logIndexer'
 import { sshManager, SshConfig } from './sshManager'
 import { openInIdea, detectIdeaExecutable } from './ideaLauncher'
 
-let watchedFilePath: string | null = null
+const watchedFilesMap = new Map<string, { unwatch: () => void; count: number }>()
 let mainWindow: BrowserWindow | null = null
 
 function startWatchingFile(filePath: string, webContents: Electron.WebContents): void {
-  if (watchedFilePath) {
-    unwatchFile(watchedFilePath)
-    watchedFilePath = null
+  const existing = watchedFilesMap.get(filePath)
+  if (existing) {
+    existing.count += 1
+    return
   }
+
   try {
-    watchedFilePath = filePath
-    watchFile(filePath, { interval: 200 }, (curr, prev) => {
+    const callback = async (curr: any, prev: any): Promise<void> => {
       if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
         try {
           if (existsSync(filePath)) {
-            const indexInfo = logIndexer.updateIndexOnAppend(filePath)
+            let indexInfo = logIndexer.updateIndexOnAppend(filePath)
+            if (!indexInfo) {
+              indexInfo = await logIndexer.indexFile(filePath)
+            }
             const content = logIndexer.readFullContentIfSmall(filePath)
             const latestIndex = indexInfo || logIndexer.getIndexInfo(filePath)
             webContents.send('log-file-changed', {
@@ -37,9 +41,30 @@ function startWatchingFile(filePath: string, webContents: Electron.WebContents):
           console.error('Failed to read updated file:', err)
         }
       }
+    }
+
+    watchFile(filePath, { interval: 200 }, callback)
+    watchedFilesMap.set(filePath, {
+      unwatch: () => unwatchFile(filePath, callback),
+      count: 1
     })
   } catch (err) {
     console.error('Failed to start file watcher:', err)
+  }
+}
+
+function stopWatchingFile(filePath: string): void {
+  const existing = watchedFilesMap.get(filePath)
+  if (existing) {
+    existing.count -= 1
+    if (existing.count <= 0) {
+      try {
+        existing.unwatch()
+      } catch (e) {
+        console.error('Error unwatching file:', e)
+      }
+      watchedFilesMap.delete(filePath)
+    }
   }
 }
 
@@ -143,6 +168,12 @@ app.whenReady().then(() => {
     return await logIndexer.indexFile(filePath)
   })
 
+  // Unwatch a log file when tab closes
+  ipcMain.handle('unwatch-log-file', async (_event, filePath: string) => {
+    stopWatchingFile(filePath)
+    return true
+  })
+
   // Open log file dialog and read content
   ipcMain.handle('open-log-file', async (event) => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -155,7 +186,6 @@ app.whenReady().then(() => {
     })
     if (canceled || filePaths.length === 0) return null
     try {
-      sshManager.disconnect()
       const filePath = filePaths[0]
       const indexInfo = await logIndexer.indexFile(filePath)
       const content = logIndexer.readFullContentIfSmall(filePath)
@@ -209,7 +239,6 @@ app.whenReady().then(() => {
   // Open a log file by path directly
   ipcMain.handle('open-file-by-path', async (event, filePath: string) => {
     try {
-      sshManager.disconnect()
       if (!existsSync(filePath)) {
         return { success: false, error: 'File does not exist' }
       }
@@ -267,10 +296,6 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('ssh:connect', async (event, config: SshConfig) => {
-    if (watchedFilePath) {
-      unwatchFile(watchedFilePath)
-      watchedFilePath = null
-    }
     sshManager.connectAndTail(config, event.sender)
     const window = BrowserWindow.fromWebContents(event.sender)
     if (window) {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import type { LogLevel } from './LogTimeline'
 
 export interface LogLineData {
@@ -90,6 +91,13 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
     observer.observe(el)
     return () => observer.disconnect()
   }, [containerRef])
+
+  // Keep scrollTop synced if container scroll position changes programmatically
+  useEffect(() => {
+    if (containerRef.current) {
+      setScrollTop(containerRef.current.scrollTop)
+    }
+  }, [lines, containerRef])
 
   const handleScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
@@ -421,7 +429,7 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
         flex: 1,
         overflow: 'auto',
         borderRadius: 8,
-        padding: '10px 12px',
+        padding: '8px 4px',
         border: isDark ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(0, 0, 0, 0.08)',
         minHeight: 0,
         position: 'relative'
@@ -445,9 +453,9 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
             const topOffset = itemOffsets[actualIndex]
             const height = itemHeights[actualIndex]
             const originalIndex = item.originalIndex
-            const markColor = markedLines[originalIndex]
-            const isBookmarked = !!bookmarkedLines[originalIndex]
-            const bookmarkData = bookmarkedLines[originalIndex]
+            const markColor = (markedLines || {})[originalIndex]
+            const isBookmarked = !!((bookmarkedLines || {})[originalIndex])
+            const bookmarkData = (bookmarkedLines || {})[originalIndex]
             const isFlashing = targetFlashLine === originalIndex
 
             const bookmarkTitle = isBookmarked
@@ -473,17 +481,30 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
               whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
               wordBreak: wordWrap ? 'break-all' : 'normal',
               display: 'flex',
-              alignItems: 'flex-start'
+              alignItems: 'flex-start',
+              borderLeft: '4px solid transparent'
             }
 
-            if (!markColor) {
-              if (item.level === 'ERROR') {
-                lineStyle.backgroundColor = isDark ? 'rgba(244, 63, 94, 0.32)' : '#ffe4e6'
-                lineStyle.borderLeft = isDark ? '4px solid #f43f5e' : '4px solid #e11d48'
-              } else if (item.level === 'WARN') {
-                lineStyle.backgroundColor = isDark ? 'rgba(234, 179, 8, 0.24)' : '#fef9c3'
-                lineStyle.borderLeft = isDark ? '4px solid #eab308' : '4px solid #ca8a04'
+            if (markColor) {
+              const colorMap: Record<string, { bg: string; text: string; border: string }> = {
+                blue: { bg: '#3b82f6', text: '#ffffff', border: '#1d4ed8' },
+                red: { bg: '#ef4444', text: '#ffffff', border: '#b91c1c' },
+                green: { bg: '#10b981', text: '#ffffff', border: '#047857' },
+                orange: { bg: '#f97316', text: '#ffffff', border: '#c2410c' },
+                purple: { bg: '#8b5cf6', text: '#ffffff', border: '#6d28d9' }
               }
+              const config = colorMap[markColor]
+              if (config) {
+                lineStyle.backgroundColor = config.bg
+                lineStyle.color = config.text
+                lineStyle.borderLeft = `4px solid ${config.border}`
+              }
+            } else if (item.level === 'ERROR') {
+              lineStyle.backgroundColor = isDark ? 'rgba(244, 63, 94, 0.32)' : '#ffe4e6'
+              lineStyle.borderLeft = isDark ? '4px solid #f43f5e' : '4px solid #e11d48'
+            } else if (item.level === 'WARN') {
+              lineStyle.backgroundColor = isDark ? 'rgba(234, 179, 8, 0.24)' : '#fef9c3'
+              lineStyle.borderLeft = isDark ? '4px solid #eab308' : '4px solid #ca8a04'
             }
 
             return (
@@ -503,9 +524,9 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
                       userSelect: 'none',
                       WebkitUserSelect: 'none',
                       display: 'inline-block',
-                      minWidth: `${maxLineDigits * 0.65 + 0.8}em`,
+                      minWidth: `${maxLineDigits}ch`,
                       textAlign: 'right',
-                      marginRight: '12px',
+                      marginRight: '8px',
                       opacity: 0.45,
                       fontSize: '0.9em',
                       color: 'inherit',
@@ -527,10 +548,24 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
                     cursor: 'pointer',
                     userSelect: 'none',
                     marginRight: '8px',
-                    paddingTop: '3px'
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '4px',
+                    backgroundColor: isBookmarked ? '#faad14' : 'transparent',
+                    color: isBookmarked ? '#141414' : (isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)'),
+                    boxShadow: isBookmarked ? '0 0 8px rgba(250, 173, 20, 0.65)' : 'none',
+                    flexShrink: 0,
+                    marginTop: '2px'
                   }}
                 >
-                  {isBookmarked ? '📌' : '📍'}
+                  {isBookmarked ? (
+                    <PushpinFilled style={{ fontSize: '12px' }} />
+                  ) : (
+                    <PushpinOutlined style={{ fontSize: '12px' }} />
+                  )}
                 </span>
                 {renderLevelBadge(item.level)}
                 <span

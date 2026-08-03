@@ -35,6 +35,7 @@ declare global {
       indexLogFile: (
         filePath: string
       ) => Promise<{ filePath: string; fileSize: number; totalLines: number }>
+      unwatchLogFile: (filePath: string) => Promise<boolean>
       getRecentFiles: () => Promise<string[]>
       clearRecentFiles: () => Promise<boolean>
       onLogFileChanged: (

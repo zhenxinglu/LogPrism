@@ -5,16 +5,28 @@ export interface StackTraceReference {
   rawMatch: string
 }
 
+// Extensions specifically representing source code files
+const CODE_EXT_PATTERN =
+  'groovy|scala|java|tsx|jsx|cpp|hpp|vue|php|kt|py|ts|js|go|rs|cs|rb|c|h'
+
+// Extensions representing data, configuration, or text files
+const DATA_EXT_PATTERN =
+  'properties|yaml|json|html|conf|log|txt|yml|xml|sql|ini|csv|md|sh'
+
 /**
  * Parses code stack trace or source file references from a log line.
  * Supports Java, Kotlin, Groovy, Python, JavaScript/TypeScript, C++, Go, etc.
  *
- * Handles:
- * - Java stacktrace: "at com.example.Service.method(Service.java:45)"
- * - File reference: "UserService.java:45"
- * - Colon-separated log format: "AbstractService:methodName:185"
- * - Dotted class name: "com.example.service.UserService:45"
- * - Logger name: "c.e.service.UserService"
+ * Priority order:
+ * 1. Java standard stacktrace: "at com.example.Service.method(Service.java:45)"
+ * 2. Source file with extension AND line number: "UserService.java:45", "app.tsx:50"
+ * 3. Java log format (Class:Method:Line or Class:Line): "FileLoaderFactory:loadConfigFromFiles:135"
+ * 4. Qualified class with line: "com.example.service.UserService:45"
+ * 5. Source file with extension (no line): "UserService.java", "app.tsx"
+ * 6. Java log format (Class:Method, no line): "FileLoaderFactory:loadConfigFromFiles"
+ * 7. Qualified class name (no line): "com.example.service.UserService"
+ * 8. Data/config file with line number: "config.json:45"
+ * 9. Data/config file (no line): "tcs-gui2.json"
  */
 export function parseStackReference(lineText: string): StackTraceReference | null {
   if (!lineText) return null
@@ -38,24 +50,26 @@ export function parseStackReference(lineText: string): StackTraceReference | nul
     }
   }
 
-  // 2. File name with extension and optional line number:
-  // e.g., "UserService.java:45", "[UserService.java:45]", "(UserService.kt:120)"
-  const fileExtRegex =
-    /(?<!\.)([a-zA-Z0-9_-]+\.(?:java|kt|groovy|scala|py|ts|tsx|js|jsx|vue|cpp|hpp|go|rs|cs|php|rb|html|xml|json|yml|yaml|properties|sql|sh))(?::(\d+))?/i
-  const fileExtMatch = lineText.match(fileExtRegex)
-  if (fileExtMatch) {
+  // 2. Source code file name with extension AND line number:
+  // e.g., "UserService.java:45", "[UserService.kt:120]", "(app.tsx:50)"
+  const codeFileWithLineRegex = new RegExp(
+    `(?<!\\.)([a-zA-Z0-9_-]+\\.(?:${CODE_EXT_PATTERN})(?![a-zA-Z0-9_]))::?(\\d+)`,
+    'i'
+  )
+  const codeFileWithLineMatch = lineText.match(codeFileWithLineRegex)
+  if (codeFileWithLineMatch) {
     return {
-      fileName: fileExtMatch[1],
-      line: fileExtMatch[2] ? parseInt(fileExtMatch[2], 10) : 1,
-      rawMatch: fileExtMatch[0]
+      fileName: codeFileWithLineMatch[1],
+      line: parseInt(codeFileWithLineMatch[2], 10),
+      rawMatch: codeFileWithLineMatch[0]
     }
   }
 
-  // 3. Colon-separated log format (common in many Java frameworks):
-  // e.g., "SimpleStarter:<init>:116", "AbstractFinNextStopManager:FireEvent:185", "UserService:processRequest:42"
-  // Pattern: ClassName:methodName:lineNumber or ClassName:<init>:lineNumber (class starts with uppercase)
+  // 3. Colon-separated log format (common in Java frameworks):
+  // e.g., "FileLoaderFactory:loadConfigFromFiles:135", "SimpleStarter:<init>:116", "ScsServer-Scs:launchServer:294"
+  // ClassName starts with uppercase letter
   const colonSepRegex =
-    /(?:^|[\s\[\]])([A-Z][a-zA-Z0-9_$]*):(?:<[a-zA-Z0-9_$]+>|[a-zA-Z_$][a-zA-Z0-9_$]*):(\d+)(?=\s|$|-|,|;|\]|\))/
+    /(?:^|[\s\[\]])([A-Z][a-zA-Z0-9_$-]*):(?:<[a-zA-Z0-9_$]+>|[a-zA-Z_$][a-zA-Z0-9_$]*):(\d+)(?=\s|$|-|,|;|\]|\))/
   const colonSepMatch = lineText.match(colonSepRegex)
   if (colonSepMatch) {
     const className = colonSepMatch[1]
@@ -69,9 +83,9 @@ export function parseStackReference(lineText: string): StackTraceReference | nul
   }
 
   // 3b. ClassName:lineNumber directly:
-  // e.g., "SimpleStarter:116"
+  // e.g., "SimpleStarter:116", "FileLoaderFactory:135"
   const colonClassLineRegex =
-    /(?:^|[\s\[\]])([A-Z][a-zA-Z0-9_$]{2,}):(\d+)(?=\s|$|-|,|;|\]|\))/
+    /(?:^|[\s\[\]])([A-Z][a-zA-Z0-9_$-]{2,}):(\d+)(?=\s|$|-|,|;|\]|\))/
   const colonClassLineMatch = lineText.match(colonClassLineRegex)
   if (colonClassLineMatch) {
     const className = colonClassLineMatch[1]
@@ -84,10 +98,48 @@ export function parseStackReference(lineText: string): StackTraceReference | nul
     }
   }
 
-  // 4. Colon-separated without line number:
-  // e.g., "UserService:processRequest", "SimpleStarter:<init>" — just class + method, no line
+  // 4. Dotted qualified class name with line number:
+  // e.g., "com.example.service.UserService:45"
+  const classRegex = /([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*){1,})/g
+  let classMatch: RegExpExecArray | null
+  while ((classMatch = classRegex.exec(lineText)) !== null) {
+    const fullClass = classMatch[1]
+    const parts = fullClass.split('.')
+    const lastPart = parts[parts.length - 1]
+
+    if (/^[A-Z][a-zA-Z0-9_$]*$/.test(lastPart)) {
+      const remainingStr = lineText.substring(classMatch.index! + fullClass.length)
+      const lineMatch = remainingStr.match(/^:(\d+)/)
+      if (lineMatch) {
+        return {
+          fileName: `${lastPart}.java`,
+          className: fullClass,
+          line: parseInt(lineMatch[1], 10),
+          rawMatch: `${fullClass}:${lineMatch[1]}`
+        }
+      }
+    }
+  }
+
+  // 5. Source code file name with extension (WITHOUT line number):
+  // e.g., "UserService.java", "App.tsx", "main.py"
+  const codeFileRegex = new RegExp(
+    `(?<!\\.)([a-zA-Z0-9_-]+\\.(?:${CODE_EXT_PATTERN})(?![a-zA-Z0-9_]))`,
+    'i'
+  )
+  const codeFileMatch = lineText.match(codeFileRegex)
+  if (codeFileMatch) {
+    return {
+      fileName: codeFileMatch[1],
+      line: 1,
+      rawMatch: codeFileMatch[0]
+    }
+  }
+
+  // 6. Colon-separated without line number:
+  // e.g., "UserService:processRequest", "SimpleStarter:<init>"
   const colonNoLineRegex =
-    /(?:^|[\s\[\]])([A-Z][a-zA-Z0-9_$]{2,}):(?:<[a-zA-Z0-9_$]+>|[a-zA-Z_$][a-zA-Z0-9_$]*)(?=\s|$|-|,|;|\]|\))/
+    /(?:^|[\s\[\]])([A-Z][a-zA-Z0-9_$-]{2,}):(?:<[a-zA-Z0-9_$]+>|[a-zA-Z_$][a-zA-Z0-9_$]*)(?=\s|$|-|,|;|\]|\))/
   const colonNoLineMatch = lineText.match(colonNoLineRegex)
   if (colonNoLineMatch) {
     const className = colonNoLineMatch[1]
@@ -99,27 +151,51 @@ export function parseStackReference(lineText: string): StackTraceReference | nul
     }
   }
 
-  // 5. Dotted qualified class name with optional line number:
-  // e.g., "com.example.service.UserService:45" or "c.e.service.UserService"
-  // Each segment must start with a letter. Uses matchAll to skip false positives.
-  const classRegex = /([a-zA-Z_$][a-zA-Z0-9_$]*(?:\.[a-zA-Z_$][a-zA-Z0-9_$]*){1,})/g
-  let classMatch: RegExpExecArray | null
+  // 7. Qualified class name without line number:
+  // e.g., "com.example.service.UserService"
+  classRegex.lastIndex = 0
   while ((classMatch = classRegex.exec(lineText)) !== null) {
     const fullClass = classMatch[1]
     const parts = fullClass.split('.')
     const lastPart = parts[parts.length - 1]
 
-    // Last part must look like a ClassName (starts with uppercase letter)
     if (/^[A-Z][a-zA-Z0-9_$]*$/.test(lastPart)) {
-      const remainingStr = lineText.substring(classMatch.index! + fullClass.length)
-      const lineMatch = remainingStr.match(/^:(\d+)/)
-      const lineNum = lineMatch ? parseInt(lineMatch[1], 10) : 1
       return {
         fileName: `${lastPart}.java`,
         className: fullClass,
-        line: lineNum,
+        line: 1,
         rawMatch: fullClass
       }
+    }
+  }
+
+  // 8. Generic / Data file name with extension AND line number:
+  // e.g., "config.json:45", "settings.xml:12"
+  const dataFileWithLineRegex = new RegExp(
+    `(?<!\\.)([a-zA-Z0-9_-]+\\.(?:${DATA_EXT_PATTERN})(?![a-zA-Z0-9_]))::?(\\d+)`,
+    'i'
+  )
+  const dataFileWithLineMatch = lineText.match(dataFileWithLineRegex)
+  if (dataFileWithLineMatch) {
+    return {
+      fileName: dataFileWithLineMatch[1],
+      line: parseInt(dataFileWithLineMatch[2], 10),
+      rawMatch: dataFileWithLineMatch[0]
+    }
+  }
+
+  // 9. Generic / Data file name with extension (WITHOUT line number):
+  // e.g., "tcs-gui2.json", "log4j2.xml", "application.yml"
+  const dataFileRegex = new RegExp(
+    `(?<!\\.)([a-zA-Z0-9_-]+\\.(?:${DATA_EXT_PATTERN})(?![a-zA-Z0-9_]))`,
+    'i'
+  )
+  const dataFileMatch = lineText.match(dataFileRegex)
+  if (dataFileMatch) {
+    return {
+      fileName: dataFileMatch[1],
+      line: 1,
+      rawMatch: dataFileMatch[0]
     }
   }
 

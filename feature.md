@@ -140,9 +140,9 @@
 
 ### 多文件与远程环境协同 (Multi-File & Remote)
 
-- [ ] **多标签页与分屏对比 (Tabs & Split View)**：
-  - 支持同时打开多个日志文件，并以多标签页（Tabs）形式管理。
-  - 支持分屏模式（左右或上下分屏），方便比对同一时间段不同模块（如 Web 和 DB）的日志。
+- [x] **多标签页与分屏对比 (Tabs & Split View)**：
+  - [x] 支持同时打开多个日志文件，并以多标签页（Tabs）形式管理。
+  - [x] 支持分屏模式（左右或上下分屏），方便比对同一时间段不同模块（如 Web 和 DB）的日志。
 - [x] **远程服务器接入 (Remote Logs)**：
   - [x] 支持通过 SSH 实时 tail 远程服务器的日志文件（`tail -n <lines> -f <remotePath>`）。
   - [x] 支持密码认证（Password）与 SSH 私钥认证（Private Key / Passphrase）。
@@ -196,11 +196,9 @@
 
 _日常故障排查中使用频率最高、性价比极高且为专业日志分析器核心刚需的功能。_
 
-1. **日志级别智能提取与过滤 (Log Level Filtering & Highlighting)**
-   - **核心价值**：支持自动识别 `ERROR` / `WARN` / `INFO` / `DEBUG`，并提供一键勾选过滤与渐进式颜色高亮，提升故障定位速度。
-2. **上下文视图 (Context View - Before/After Lines)**
+1. **上下文视图 (Context View - Before/After Lines)**
    - **核心价值**：过滤出特定报错后，允许直接展开查看该行前 N 行与后 N 行的完整上下文日志，无需反复重置或清除过滤条件。
-3. **正则表达式过滤支持 (Regex Filtering)**
+2. **正则表达式过滤支持 (Regex Filtering)**
    - **核心价值**：支持 Include/Exclude 输入框切换正则模式，满足高级开发者与运维人员复杂的文本模式匹配需求。
 
 ---
@@ -213,8 +211,7 @@ _解决典型排查痛点，大幅提升长文本、长报文以及多文件排�
    - **核心价值**：针对日志行中嵌套的超长 JSON 响应体、XML 或 SQL 语句，提供右键手风琴美化展开与高亮。
 5. **导出过滤后的日志 (Export Filtered Logs)**
    - **核心价值**：允许将当前经过过滤筛选后的结果日志行快速导出/另存为本地新文件，便于提供给团队或归档。
-6. **多标签页与分屏对比 (Tabs & Split View)**
-   - **核心价值**：支持同时打开多个日志文件或 SSH 远程节点，以 Tab 及左右/上下分屏方式管理和对比链路日志。
+6. 
 7. **日志智能聚合与降噪 (Log Clustering & Pattern Recognition)**
    - **核心价值**：面对生产环境高频刷屏报错，自动折叠相似堆栈并展示频次统计，避免关键关键日志被淹没。
 
@@ -257,4 +254,3 @@ _架构预留、系统级标准对接或次要辅助功能。_
 16. **无障碍辅助支持 (Accessibility Support - WCAG 2.1 AA)**：支持键盘导航与 ARIA 标签。
 17. **性能指标仪表盘 (Performance Metrics Dashboard)**：实时监控 RAM/CPU 及渲染帧率。
 18. **插件化架构 (Plugin Architecture)**：轻量级第三方解析器与导出插件扩展机制。
-19. **用户交互与行为分析 (User Interaction Analytics)**：Opt-in 匿名使用数据收集。

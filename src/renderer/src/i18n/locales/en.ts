@@ -87,7 +87,7 @@ export const en = {
   bookmarks: {
     title: 'Bookmarks & Pins',
     noBookmarks:
-      'No bookmarked lines yet. Right-click any line or click the 📍 icon to add a bookmark.',
+      'No bookmarked lines yet. Right-click any line or click the pin icon to add a bookmark.',
     searchPlaceholder: 'Search bookmarks...',
     clearAll: 'Clear All',
     confirmClearAll: 'Are you sure you want to clear all bookmarks?',
@@ -188,5 +188,27 @@ export const en = {
     copy: 'Copy',
     copied: 'Copied to clipboard',
     loading: 'Loading...'
+  },
+  tabs: {
+    newTab: 'New Tab',
+    closeTab: 'Close Tab',
+    closeOthers: 'Close Other Tabs',
+    closeAll: 'Close All Tabs',
+    untitled: 'Untitled Log',
+    openLocalFile: 'Open Local File...',
+    connectRemoteSsh: 'Connect Remote SSH...'
+  },
+  splitView: {
+    title: 'Split View',
+    single: 'Single View',
+    horizontal: 'Horizontal Split (Left / Right)',
+    vertical: 'Vertical Split (Top / Bottom)',
+    syncScroll: 'Sync Scroll',
+    syncScrollOn: 'Sync Scroll ON',
+    syncScrollOff: 'Sync Scroll OFF',
+    paneA: 'Pane A',
+    paneB: 'Pane B',
+    activePane: 'Active Pane',
+    selectTabPrompt: 'Select a tab to view'
   }
 }
