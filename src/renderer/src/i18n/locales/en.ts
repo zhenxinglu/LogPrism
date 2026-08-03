@@ -93,7 +93,11 @@ export const en = {
     confirmClearAll: 'Are you sure you want to clear all bookmarks?',
     editLabelTitle: 'Bookmark Label',
     editLabelPlaceholder: 'Enter custom label or note...',
-    lineNum: 'Line #{{line}}'
+    lineNum: 'Line #{{line}}',
+    renameBookmark: 'Rename Bookmark',
+    unpinLine: 'Remove Bookmark',
+    addLabel: 'Add Label',
+    renameSuccess: 'Bookmark label updated'
   },
   sshModal: {
     title: 'Remote Server Setup (SSH Logs)',

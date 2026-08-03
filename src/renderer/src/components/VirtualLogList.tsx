@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import type { LogLevel } from './LogTimeline'
 
@@ -23,6 +23,7 @@ interface VirtualLogListProps {
   showLineNumbers: boolean
   maxLineDigits: number
   highlightWord: string
+  onHighlightWordChange?: (word: string) => void
   searchKeyword: string
   currentMatchIndex: number
   markedLines: Record<number, string>
@@ -56,6 +57,7 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
   showLineNumbers,
   maxLineDigits,
   highlightWord,
+  onHighlightWordChange,
   searchKeyword,
   currentMatchIndex,
   markedLines,
@@ -251,16 +253,56 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
     return { lineMatchStartIndices: startIndices, searchMatchLocations: locations }
   }, [lines, searchKeyword])
 
+  const lastSetTimeRef = useRef<number>(0)
+
+  const handleSelection = useCallback(() => {
+    if (!onHighlightWordChange) return
+    const selection = window.getSelection()
+    if (!selection) return
+    const selectedText = selection.toString().trim()
+    if (selectedText && !selectedText.includes('\n') && selectedText.length <= 200) {
+      lastSetTimeRef.current = Date.now()
+      if (selectedText !== highlightWord) {
+        onHighlightWordChange(selectedText)
+      }
+    } else if (!selectedText && highlightWord) {
+      if (Date.now() - lastSetTimeRef.current > 350) {
+        onHighlightWordChange('')
+      }
+    }
+  }, [highlightWord, onHighlightWordChange])
+
   const renderHighlightedText = useCallback(
     (text: string, lineIndex: number) => {
-      let html = escapeHtml(text)
+      const highlightInText = (plainText: string, word: string, className: string): string => {
+        if (!word) return escapeHtml(plainText)
+        const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const regex = new RegExp(`(${escapedWord})`, 'gi')
+        const parts = plainText.split(regex)
+        return parts
+          .map((part, index) => {
+            if (index % 2 === 1) {
+              return `<mark class="${className}">${escapeHtml(part)}</mark>`
+            }
+            return escapeHtml(part)
+          })
+          .join('')
+      }
 
-      if (searchKeyword) {
+      if (!searchKeyword && !highlightWord) {
+        return escapeHtml(text)
+      }
+
+      if (!searchKeyword && highlightWord) {
+        return highlightInText(text, highlightWord, 'log-highlight')
+      }
+
+      if (searchKeyword && !highlightWord) {
         const escapedWord = searchKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
         const regex = new RegExp(`(${escapedWord})`, 'gi')
         const parts = text.split(regex)
         let matchIdx = lineMatchStartIndices[lineIndex] ?? 0
-        html = parts
+        return parts
           .map((part, index) => {
             if (index % 2 === 1) {
               const isCurrent = matchIdx === currentMatchIndex
@@ -272,21 +314,26 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
             return escapeHtml(part)
           })
           .join('')
-      } else if (highlightWord) {
-        const escapedWord = highlightWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const regex = new RegExp(`(${escapedWord})`, 'g')
-        const parts = text.split(regex)
-        html = parts
-          .map((part, index) => {
-            if (index % 2 === 1) {
-              return `<mark class="log-highlight">${escapeHtml(part)}</mark>`
-            }
-            return escapeHtml(part)
-          })
-          .join('')
       }
 
-      return html
+      const escapedSearch = searchKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const searchRegex = new RegExp(`(${escapedSearch})`, 'gi')
+      const parts = text.split(searchRegex)
+      let matchIdx = lineMatchStartIndices[lineIndex] ?? 0
+
+      return parts
+        .map((part, index) => {
+          if (index % 2 === 1) {
+            const isCurrent = matchIdx === currentMatchIndex
+            const className = isCurrent ? 'search-match search-match-active' : 'search-match'
+            const rendered = `<mark class="${className}" data-match-index="${matchIdx}">${escapeHtml(part)}</mark>`
+            matchIdx++
+            return rendered
+          } else {
+            return highlightInText(part, highlightWord, 'log-highlight')
+          }
+        })
+        .join('')
     },
     [searchKeyword, lineMatchStartIndices, currentMatchIndex, highlightWord]
   )
@@ -420,6 +467,8 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
     <div
       ref={containerRef as React.RefObject<HTMLDivElement>}
       onScroll={handleScroll}
+      onDoubleClick={handleSelection}
+      onMouseUp={handleSelection}
       style={{
         background: isDark ? '#09090b' : '#ffffff',
         color: isDark ? '#e4e4e7' : '#1e293b',
@@ -567,6 +616,29 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
                     <PushpinOutlined style={{ fontSize: '12px' }} />
                   )}
                 </span>
+                {isBookmarked && bookmarkData?.name && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      backgroundColor: 'rgba(250, 173, 20, 0.15)',
+                      color: isDark ? '#fadb14' : '#d48806',
+                      border: '1px solid rgba(250, 173, 20, 0.4)',
+                      borderRadius: '3px',
+                      fontSize: '11px',
+                      padding: '0 5px',
+                      marginRight: '6px',
+                      lineHeight: '18px',
+                      height: '18px',
+                      fontWeight: 500,
+                      userSelect: 'none',
+                      flexShrink: 0
+                    }}
+                    title={`Bookmark Label: ${bookmarkData.name}`}
+                  >
+                    🏷️ {bookmarkData.name}
+                  </span>
+                )}
                 {renderLevelBadge(item.level)}
                 <span
                   dangerouslySetInnerHTML={{

@@ -31,10 +31,8 @@
 ## 🔧 需要改进的地方 (Improvement Areas)
 
 - **无障碍辅助支持（Accessibility Support）**：实现全面的键盘导航、ARIA 标签和焦点指示器，满足 WCAG 2.1 AA 标准。
-- **国际化支持（Internationalization / i18n）**：构建多语言翻译框架，支持未来扩展语言包（如中文、西班牙语等），同时保持默认 UI 为英文。
-- **插件化架构（Plugin Architecture）**：设计轻量级插件系统，使第三方开发者无需修改核心代码即可添加自定义解析器、导出格式或可视化组件。
+- **[x] 国际化支持（Internationalization / i18n）**：基于 `i18next` 搭建多语言架构，完整支持 English 与中文界面切换及持久化保存。
 - **主题自定义与编辑（Customizable Themes）**：提供实时预览的主题编辑器，允许用户创建和分享自己的配色方案、字体及毛玻璃（Glassmorphism）样式。
-- **性能指标仪表盘（Performance Metrics Dashboard）**：实时展示内存/CPU 使用率、渲染帧率及日志写入吞吐量，协助排查性能瓶颈。
 - **离线模式（Offline Mode）**：本地缓存远程日志，在网络断开时仍可进行日志分析，并在网络恢复后自动重新同步。
 - **高级 DSL 搜索语言（Advanced Search DSL）**：为高级用户拓展过滤器语言，支持小型的特定领域查询语言（例如 `level:ERROR AND timestamp>now-1h`）。
 
@@ -72,13 +70,15 @@
   - [x] 输入检索词后自动进行全局匹配，并实时呈现匹配项总数与当前聚焦序号（如 `1/12`）。
   - [x] 支持按 `F3` / `Enter` 顺序定位到下一个匹配项，按 `Shift + F3` / `Shift + Enter` 定位到上一个匹配项，并自动平滑滚动视图到当前匹配所在位置。
   - [x] 当前匹配项提供高对比度橙色高亮显示，支持通过 `Esc` 键或关闭按钮迅速退出搜索状态。
-- [x] **双击词汇高亮（Double-Click Word Highlighting）**：
-  - [x] 在日志内容视图中双击任意单个词汇，即可自动高亮标注当前所有渲染日志中完全相同的词汇。
+- [x] **双击与划词词汇高亮（Double-Click & Selection Word Highlighting）**：
+  - [x] 在日志内容视图中双击或鼠标划词选中任意词汇，即可自动高亮标注当前所有渲染日志中完全相同的词汇。
 - [x] **应用自动更新与版本管理（Auto-Update & Version Check）**：
   - [x] 集成 `electron-updater` 模块，支持与 GitHub Release 联动进行应用升级检测。
   - [x] 底部状态栏左侧常驻显示当前版本号（如 `v1.1.0`），右侧提供 **Check for Updates** 触发入口。
   - [x] 提供交互式更新模态弹窗（Modal），涵盖新版本 Changelog 显示、下载进度条（Progress bar）及一键 "Restart and Install" 重启安装体验。
   - [x] 包含完善的错误捕捉与友好提示（如缺少 GitHub `latest.yml` 时的针对性提示）。
+- [x] **启动窗口最大化（Maximized Window on Launch）**：
+  - [x] 应用启动时在 `ready-to-show` 事件中自动调取 `mainWindow.maximize()`，使主窗口在首次呈现时即处于最大化状态，提供开箱即用的宽广日志视图体验。
 - [x] **界面全英文标准化（Full English UI Standard）**：
   - [x] 应用的所有控件、按钮、标签、右键菜单、操作提示及弹窗说明全面采用英文表达，确保用户界面风格统一规范。
 - [x] **国际化支持（Internationalization / i18n）**：
@@ -211,9 +211,8 @@ _解决典型排查痛点，大幅提升长文本、长报文以及多文件排�
    - **核心价值**：针对日志行中嵌套的超长 JSON 响应体、XML 或 SQL 语句，提供右键手风琴美化展开与高亮。
 5. **导出过滤后的日志 (Export Filtered Logs)**
    - **核心价值**：允许将当前经过过滤筛选后的结果日志行快速导出/另存为本地新文件，便于提供给团队或归档。
-6. 
-7. **日志智能聚合与降噪 (Log Clustering & Pattern Recognition)**
-   - **核心价值**：面对生产环境高频刷屏报错，自动折叠相似堆栈并展示频次统计，避免关键关键日志被淹没。
+6. **日志智能聚合与降噪 (Log Clustering & Pattern Recognition)**
+   - **核心价值**：面对生产环境高频刷屏报错，自动折叠相似堆栈并展示频次统计，避免关键日志被淹没。
 
 ---
 
@@ -252,5 +251,4 @@ _具有较高创新价值或面向硬核用户的定制功能。_
 _架构预留、系统级标准对接或次要辅助功能。_
 
 16. **无障碍辅助支持 (Accessibility Support - WCAG 2.1 AA)**：支持键盘导航与 ARIA 标签。
-17. **性能指标仪表盘 (Performance Metrics Dashboard)**：实时监控 RAM/CPU 及渲染帧率。
-18. **插件化架构 (Plugin Architecture)**：轻量级第三方解析器与导出插件扩展机制。
+17. **插件化架构 (Plugin Architecture)**：轻量级第三方解析器与导出插件扩展机制。

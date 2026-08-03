@@ -92,7 +92,11 @@ export const zh = {
     confirmClearAll: '确定要清空所有书签吗？',
     editLabelTitle: '设置书签备注',
     editLabelPlaceholder: '输入自定义标签或备注...',
-    lineNum: '第 {{line}} 行'
+    lineNum: '第 {{line}} 行',
+    renameBookmark: '重命名书签',
+    unpinLine: '移除书签',
+    addLabel: '添加备注',
+    renameSuccess: '书签备注已更新'
   },
   sshModal: {
     title: '远程服务器配置 (SSH 日志)',

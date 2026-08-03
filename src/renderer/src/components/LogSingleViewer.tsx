@@ -15,6 +15,7 @@ import {
   Tag,
   Tooltip,
   Modal,
+  Popconfirm,
   DatePicker,
   type MenuProps
 } from 'antd'
@@ -35,7 +36,11 @@ import {
   TagOutlined,
   CodeOutlined,
   FolderOpenOutlined,
-  CloseOutlined
+  CloseOutlined,
+  VerticalRightOutlined,
+  VerticalLeftOutlined,
+  HighlightOutlined,
+  EditOutlined
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { useTranslation } from 'react-i18next'
@@ -879,6 +884,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
   const handleConfirmRenameModal = () => {
     if (renameTargetIndex !== null) {
       handleSaveBookmarkName(renameTargetIndex, renameInputVal)
+      message.success(t('bookmarks.renameSuccess'))
       setRenameModalVisible(false)
       setRenameTargetIndex(null)
       setRenameInputVal('')
@@ -1081,10 +1087,11 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
           font-weight: bold;
         }
         .log-highlight {
-          background-color: ${isDark ? '#854d0e' : '#fef08a'};
-          color: ${isDark ? '#ffffff' : '#000000'};
+          background-color: ${isDark ? 'rgba(234, 179, 8, 0.35)' : '#fef08a'};
+          color: ${isDark ? '#fef08a' : '#000000'};
           border-radius: 2px;
           padding: 0 2px;
+          box-shadow: ${isDark ? '0 0 0 1px rgba(234, 179, 8, 0.5)' : '0 0 0 1px #fde047'};
         }
       `}</style>
 
@@ -1496,6 +1503,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
           showLineNumbers={session.showLineNumbers}
           maxLineDigits={Math.max(String(session.totalLines || filteredLines.length).length, 3)}
           highlightWord={session.highlightWord}
+          onHighlightWordChange={(word) => onUpdateSession({ highlightWord: word })}
           searchKeyword={searchKeyword}
           currentMatchIndex={currentMatchIndex}
           markedLines={session.markedLines || {}}
@@ -1601,11 +1609,27 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
 
       {/* Bookmarks Drawer */}
       <Drawer
-        title={t('bookmarks.title')}
+        title={
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginRight: 8 }}>
+            <span>{t('bookmarks.title')}</span>
+            {Object.keys(session.bookmarkedLines || {}).length > 0 && (
+              <Popconfirm
+                title={t('bookmarks.confirmClearAll')}
+                onConfirm={() => onUpdateSession({ bookmarkedLines: {} })}
+                okText={t('common.confirm')}
+                cancelText={t('common.cancel')}
+              >
+                <Button type="text" danger size="small" icon={<DeleteOutlined />}>
+                  {t('bookmarks.clearAll')}
+                </Button>
+              </Popconfirm>
+            )}
+          </div>
+        }
         placement="right"
         open={bookmarksDrawerOpen}
         onClose={() => setBookmarksDrawerOpen(false)}
-        width={360}
+        width={380}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
           <Input
@@ -1629,32 +1653,93 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                   <div
                     key={bm.originalIndex}
                     style={{
-                      padding: 8,
-                      borderRadius: 6,
+                      padding: '10px 12px',
+                      borderRadius: 8,
                       border: `1px solid ${isDark ? '#303030' : '#e8e8e8'}`,
                       marginBottom: 8,
-                      cursor: 'pointer'
+                      cursor: 'pointer',
+                      backgroundColor: isDark ? '#1f1f1f' : '#ffffff',
+                      transition: 'all 0.2s ease'
                     }}
+                    className="bookmark-item-card"
                     onClick={() => {
                       setTargetFlashLine(bm.originalIndex)
                       setTimeout(() => setTargetFlashLine(null), 2000)
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Tag color="orange">#{bm.originalIndex + 1}</Tag>
-                      {bm.name && <Tag color="blue">{bm.name}</Tag>}
-                      <Button
-                        type="text"
-                        danger
-                        size="small"
-                        icon={<DeleteOutlined />}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleToggleBookmark(bm.originalIndex, bm.text, bm.timestamp)
-                        }}
-                      />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <Space size={6} style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                        <Tag color="orange" style={{ margin: 0 }}>#{bm.originalIndex + 1}</Tag>
+                        {bm.name ? (
+                          <Tag
+                            color="blue"
+                            style={{
+                              margin: 0,
+                              cursor: 'pointer',
+                              maxWidth: 160,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setRenameTargetIndex(bm.originalIndex)
+                              setRenameInputVal(bm.name || '')
+                              setRenameModalVisible(true)
+                            }}
+                            title={t('bookmarks.renameBookmark')}
+                          >
+                            🏷️ {bm.name}
+                          </Tag>
+                        ) : (
+                          <Button
+                            type="dashed"
+                            size="small"
+                            icon={<EditOutlined style={{ fontSize: 11 }} />}
+                            style={{ fontSize: 11, height: 22, padding: '0 6px', color: isDark ? '#8c8c8c' : '#595959' }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setRenameTargetIndex(bm.originalIndex)
+                              setRenameInputVal('')
+                              setRenameModalVisible(true)
+                            }}
+                          >
+                            {t('bookmarks.addLabel')}
+                          </Button>
+                        )}
+                      </Space>
+
+                      <Space size={2} style={{ flexShrink: 0 }}>
+                        <Tooltip title={t('bookmarks.renameBookmark')}>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<EditOutlined />}
+                            style={{ color: isDark ? '#a6a6a6' : '#595959' }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setRenameTargetIndex(bm.originalIndex)
+                              setRenameInputVal(bm.name || '')
+                              setRenameModalVisible(true)
+                            }}
+                          />
+                        </Tooltip>
+                        <Tooltip title={t('bookmarks.unpinLine')}>
+                          <Button
+                            type="text"
+                            danger
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleToggleBookmark(bm.originalIndex, bm.text, bm.timestamp)
+                            }}
+                          />
+                        </Tooltip>
+                      </Space>
                     </div>
-                    <Text style={{ fontSize: 11, marginTop: 4 }} ellipsis title={bm.text}>
+
+                    <Text style={{ fontSize: 12, color: isDark ? '#bfbfbf' : '#434343' }} ellipsis title={bm.text}>
                       {bm.text}
                     </Text>
                   </div>
@@ -1682,12 +1767,31 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
         destroyOnClose
       >
         <div style={{ paddingTop: 8 }}>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 13 }}>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 6, fontSize: 13 }}>
             {t('bookmarks.lineNum', {
               line: renameTargetIndex !== null ? renameTargetIndex + 1 : ''
             })}
             :
           </Text>
+          {renameTargetIndex !== null && session.bookmarkedLines[renameTargetIndex] && (
+            <div
+              style={{
+                padding: '6px 10px',
+                borderRadius: 4,
+                backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#f5f5f5',
+                marginBottom: 12,
+                fontSize: 12,
+                fontFamily: 'monospace',
+                maxHeight: 60,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}
+              title={session.bookmarkedLines[renameTargetIndex].text}
+            >
+              {session.bookmarkedLines[renameTargetIndex].text}
+            </div>
+          )}
           <Input
             placeholder={t('bookmarks.editLabelPlaceholder')}
             value={renameInputVal}
@@ -1698,6 +1802,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
               }
             }}
             autoFocus
+            allowClear
           />
         </div>
       </Modal>
@@ -1840,7 +1945,10 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
               }
             }}
           >
-            {t('contextMenu.setStartTime')}
+            <Space size={6}>
+              <VerticalRightOutlined style={{ color: '#10b981' }} />
+              <span>{t('contextMenu.setStartTime')}</span>
+            </Space>
           </div>
 
           {/* Set as End Time */}
@@ -1857,12 +1965,18 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
               }
             }}
           >
-            {t('contextMenu.setEndTime')}
+            <Space size={6}>
+              <VerticalLeftOutlined style={{ color: '#ef4444' }} />
+              <span>{t('contextMenu.setEndTime')}</span>
+            </Space>
           </div>
 
           {/* Mark Highlight Submenu */}
           <div className="menu-item has-submenu">
-            {t('contextMenu.markHighlight')}
+            <Space size={6}>
+              <HighlightOutlined style={{ color: '#8b5cf6' }} />
+              <span>{t('contextMenu.markHighlight')}</span>
+            </Space>
             <div
               className="submenu"
               style={{
