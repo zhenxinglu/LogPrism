@@ -47,7 +47,23 @@ export const en = {
     clearMark: 'Clear Highlight',
     openInIdea: 'Open in IntelliJ IDEA ({{file}})',
     openInIdeaProject: 'Open Project in IntelliJ IDEA',
-    configureSourceRoot: 'Set Source Code Root Path...'
+    configureSourceRoot: 'Set Source Code Root Path...',
+    viewContext: 'View Context (Before/After)',
+    context5Lines: 'Show ±5 Lines Context',
+    context10Lines: 'Show ±10 Lines Context',
+    context20Lines: 'Show ±20 Lines Context',
+    collapseContext: 'Collapse Context Lines',
+    inspectInModal: 'Inspect Context in Modal...'
+  },
+  contextModal: {
+    title: 'Log Context View - Line #{{line}}',
+    rangeLabel: 'Context Range (±lines):',
+    copyContext: 'Copy Context',
+    copySuccess: 'Context lines copied to clipboard',
+    collapseInline: 'Collapse Inline Context',
+    expandInline: 'Expand Inline Context',
+    targetLineTag: 'Target Line',
+    contextLineTag: 'Context'
   },
   idea: {
     sourceRootTitle: 'Source Code Root Directory',

@@ -78,7 +78,7 @@
   - [x] 提供交互式更新模态弹窗（Modal），涵盖新版本 Changelog 显示、下载进度条（Progress bar）及一键 "Restart and Install" 重启安装体验。
   - [x] 包含完善的错误捕捉与友好提示（如缺少 GitHub `latest.yml` 时的针对性提示）。
 - [x] **启动窗口最大化（Maximized Window on Launch）**：
-  - [x] 应用启动时在 `ready-to-show` 事件中自动调取 `mainWindow.maximize()`，使主窗口在�## 5. 开发顺序建议优先级 (Recommended Development Priority)
+  - [x] 应用启动时在 `ready-to-show` 事件中自动调取 `mainWindow.maximize()`，使主窗口在�## 5. 开发顺序建议优先级 (Recommended Development Priority)
 
 为了使 LogPrism 成为最专业的日志查看和分析软件，针对当前尚未实现的 13 项功能，结合**用户排查价值**与**开发实现难度**，建议按以下优先级层次推进后续开发：
 
@@ -179,7 +179,7 @@ _具有较高创新价值、探索性或面向特定场景/特定用户的定制
 
 ### 智能搜索与上下文查找 (Smart Context)
 
-- [ ] **上下文视图 (Context View - Before/After Lines)**：
+- [x] **上下文视图 (Context View - Before/After Lines)**：
   - 在过滤模式下，允许用户展开某一条匹配日志的前 N 行和后 N 行，以便查看报错的上下文环境，而无需取消当前过滤条件。
 
 ### 多文件与远程环境协同 (Multi-File & Remote)

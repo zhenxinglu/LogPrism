@@ -17,6 +17,8 @@ import {
   Modal,
   Popconfirm,
   DatePicker,
+  InputNumber,
+  Slider,
   type MenuProps
 } from 'antd'
 import {
@@ -40,7 +42,9 @@ import {
   VerticalRightOutlined,
   VerticalLeftOutlined,
   HighlightOutlined,
-  EditOutlined
+  EditOutlined,
+  BranchesOutlined,
+  CopyOutlined
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { useTranslation } from 'react-i18next'
@@ -502,6 +506,39 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     }
   }
 
+  // Context View state
+  const [expandedContexts, setExpandedContexts] = useState<Record<number, number>>({})
+  const [contextModalLine, setContextModalLine] = useState<{
+    originalIndex: number
+    text: string
+    timestamp: string | null
+  } | null>(null)
+  const [contextModalRange, setContextModalRange] = useState<number>(10)
+
+  const handleExpandContextInline = useCallback((targetIndex: number, count: number) => {
+    setExpandedContexts((prev) => ({ ...prev, [targetIndex]: count }))
+  }, [])
+
+  const handleCollapseContextInline = useCallback((targetIndex: number) => {
+    setExpandedContexts((prev) => {
+      const copy = { ...prev }
+      delete copy[targetIndex]
+      return copy
+    })
+  }, [])
+
+  const handleClearAllContexts = useCallback(() => {
+    setExpandedContexts({})
+  }, [])
+
+  const handleOpenContextModal = useCallback(
+    (originalIndex: number, text: string, timestamp: string | null) => {
+      setContextModalLine({ originalIndex, text, timestamp })
+      setContextModalRange(10)
+    },
+    []
+  )
+
   // Context menu state & positioning
   const [contextMenu, setContextMenu] = useState<{
     x: number
@@ -779,44 +816,140 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     const resultLinesData: LogLineData[] = []
     const resultTextBlocks: string[] = []
 
-    for (const entry of entries) {
-      const fullBlockText = entry.lines.join('\n')
-      const entryLevel = detectLogLevel(entry.headerLine)
-      counts[entryLevel] += 1
+    const activeExpandedContextEntries = Object.entries(expandedContexts)
+    const hasActiveFilters = Boolean(
+      (session.includeKeywords && session.includeKeywords.trim()) ||
+      (session.excludeKeywords && session.excludeKeywords.trim()) ||
+      session.startTime ||
+      session.endTime ||
+      Object.values(session.selectedLogLevels || DEFAULT_LOG_LEVELS).some((v) => !v)
+    )
 
-      if (!selectedLogLevels[entryLevel]) continue
-      if (!isWithinTimeRange(entry.timestamp)) continue
+    if (hasActiveFilters && activeExpandedContextEntries.length > 0) {
+      const matchedEntries: typeof entries = []
+      const matchedLineIndices = new Set<number>()
 
-      if (includes.length > 0) {
-        const targetText = session.isIncludeCaseSensitive
-          ? fullBlockText
-          : fullBlockText.toLowerCase()
-        const hasMatch = includes.some((kw) => targetText.includes(kw))
-        if (!hasMatch) continue
+      for (const entry of entries) {
+        const fullBlockText = entry.lines.join('\n')
+        const entryLevel = detectLogLevel(entry.headerLine)
+        counts[entryLevel] += 1
+
+        if (!selectedLogLevels[entryLevel]) continue
+        if (!isWithinTimeRange(entry.timestamp)) continue
+
+        if (includes.length > 0) {
+          const targetText = session.isIncludeCaseSensitive
+            ? fullBlockText
+            : fullBlockText.toLowerCase()
+          const hasMatch = includes.some((kw) => targetText.includes(kw))
+          if (!hasMatch) continue
+        }
+
+        if (excludes.length > 0) {
+          const targetText = session.isExcludeCaseSensitive
+            ? fullBlockText
+            : fullBlockText.toLowerCase()
+          const hasExclude = excludes.some((kw) => targetText.includes(kw))
+          if (hasExclude) continue
+        }
+
+        matchedEntries.push(entry)
+        for (let j = 0; j < entry.lines.length; j++) {
+          matchedLineIndices.add(entry.originalIndex + j)
+        }
       }
 
-      if (excludes.length > 0) {
-        const targetText = session.isExcludeCaseSensitive
-          ? fullBlockText
-          : fullBlockText.toLowerCase()
-        const hasExclude = excludes.some((kw) => targetText.includes(kw))
-        if (hasExclude) continue
+      const contextLineMap = new Map<number, { targetIndex: number }>()
+      for (const [targetStr, count] of activeExpandedContextEntries) {
+        const targetIndex = Number(targetStr)
+        const minIdx = Math.max(0, targetIndex - count)
+        const maxIdx = Math.min(rawLines.length - 1, targetIndex + count)
+        for (let i = minIdx; i <= maxIdx; i++) {
+          if (!matchedLineIndices.has(i)) {
+            if (!contextLineMap.has(i)) {
+              contextLineMap.set(i, { targetIndex })
+            }
+          }
+        }
       }
 
-      resultTextBlocks.push(fullBlockText)
-      for (let j = 0; j < entry.lines.length; j++) {
-        resultLinesData.push({
-          text: entry.lines[j],
-          originalIndex: entry.originalIndex + j,
-          timestamp: j === 0 ? entry.timestamp : null,
-          level: entryLevel
-        })
+      for (const entry of entries) {
+        const fullBlockText = entry.lines.join('\n')
+        const entryLevel = detectLogLevel(entry.headerLine)
+        const isMatched = matchedEntries.includes(entry)
+
+        if (isMatched) {
+          resultTextBlocks.push(fullBlockText)
+          for (let j = 0; j < entry.lines.length; j++) {
+            resultLinesData.push({
+              text: entry.lines[j],
+              originalIndex: entry.originalIndex + j,
+              timestamp: j === 0 ? entry.timestamp : null,
+              level: entryLevel,
+              isContext: false
+            })
+          }
+        } else {
+          for (let j = 0; j < entry.lines.length; j++) {
+            const rawIdx = entry.originalIndex + j
+            const contextInfo = contextLineMap.get(rawIdx)
+            if (contextInfo) {
+              resultLinesData.push({
+                text: entry.lines[j],
+                originalIndex: rawIdx,
+                timestamp: j === 0 ? entry.timestamp : null,
+                level: entryLevel,
+                isContext: true,
+                contextTargetIndex: contextInfo.targetIndex
+              })
+            }
+          }
+        }
       }
+
+      setFilteredLines(resultLinesData)
+      setMatchCount(matchedEntries.length)
+      setLevelCounts(counts)
+    } else {
+      for (const entry of entries) {
+        const fullBlockText = entry.lines.join('\n')
+        const entryLevel = detectLogLevel(entry.headerLine)
+        counts[entryLevel] += 1
+
+        if (!selectedLogLevels[entryLevel]) continue
+        if (!isWithinTimeRange(entry.timestamp)) continue
+
+        if (includes.length > 0) {
+          const targetText = session.isIncludeCaseSensitive
+            ? fullBlockText
+            : fullBlockText.toLowerCase()
+          const hasMatch = includes.some((kw) => targetText.includes(kw))
+          if (!hasMatch) continue
+        }
+
+        if (excludes.length > 0) {
+          const targetText = session.isExcludeCaseSensitive
+            ? fullBlockText
+            : fullBlockText.toLowerCase()
+          const hasExclude = excludes.some((kw) => targetText.includes(kw))
+          if (hasExclude) continue
+        }
+
+        resultTextBlocks.push(fullBlockText)
+        for (let j = 0; j < entry.lines.length; j++) {
+          resultLinesData.push({
+            text: entry.lines[j],
+            originalIndex: entry.originalIndex + j,
+            timestamp: j === 0 ? entry.timestamp : null,
+            level: entryLevel
+          })
+        }
+      }
+
+      setFilteredLines(resultLinesData)
+      setMatchCount(resultTextBlocks.length)
+      setLevelCounts(counts)
     }
-
-    setFilteredLines(resultLinesData)
-    setMatchCount(resultTextBlocks.length)
-    setLevelCounts(counts)
   }, [
     session.content,
     session.includeKeywords,
@@ -826,7 +959,8 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     session.startTime,
     session.endTime,
     session.selectedLogLevels,
-    activeFormat
+    activeFormat,
+    expandedContexts
   ])
 
   // Auto-scroll to bottom when tailMode is enabled and lines update
@@ -2034,6 +2168,92 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             </div>
           </div>
 
+          {/* View Context Submenu */}
+          <div className="menu-item has-submenu">
+            <Space size={6}>
+              <BranchesOutlined style={{ color: '#a855f7' }} />
+              <span>{t('contextMenu.viewContext')}</span>
+            </Space>
+            <div
+              className="submenu"
+              style={{
+                left: contextMenuPos.submenuPlacement.left,
+                right: contextMenuPos.submenuPlacement.right,
+                top: contextMenuPos.submenuPlacement.top,
+                bottom: contextMenuPos.submenuPlacement.bottom
+              }}
+            >
+              <div
+                className="submenu-item"
+                onClick={() => {
+                  handleExpandContextInline(contextMenu.originalIndex, 5)
+                  setContextMenu(null)
+                }}
+              >
+                <span style={{ flex: 1 }}>{t('contextMenu.context5Lines')}</span>
+                {expandedContexts[contextMenu.originalIndex] === 5 && (
+                  <span style={{ fontSize: 10, color: '#a855f7' }}>✓</span>
+                )}
+              </div>
+              <div
+                className="submenu-item"
+                onClick={() => {
+                  handleExpandContextInline(contextMenu.originalIndex, 10)
+                  setContextMenu(null)
+                }}
+              >
+                <span style={{ flex: 1 }}>{t('contextMenu.context10Lines')}</span>
+                {expandedContexts[contextMenu.originalIndex] === 10 && (
+                  <span style={{ fontSize: 10, color: '#a855f7' }}>✓</span>
+                )}
+              </div>
+              <div
+                className="submenu-item"
+                onClick={() => {
+                  handleExpandContextInline(contextMenu.originalIndex, 20)
+                  setContextMenu(null)
+                }}
+              >
+                <span style={{ flex: 1 }}>{t('contextMenu.context20Lines')}</span>
+                {expandedContexts[contextMenu.originalIndex] === 20 && (
+                  <span style={{ fontSize: 10, color: '#a855f7' }}>✓</span>
+                )}
+              </div>
+              {expandedContexts[contextMenu.originalIndex] && (
+                <div
+                  className="submenu-item"
+                  onClick={() => {
+                    handleCollapseContextInline(contextMenu.originalIndex)
+                    setContextMenu(null)
+                  }}
+                  style={{ color: isDark ? '#f87171' : '#dc2626' }}
+                >
+                  <span style={{ flex: 1 }}>{t('contextMenu.collapseContext')}</span>
+                </div>
+              )}
+              <div
+                style={{
+                  height: 1,
+                  background: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)',
+                  margin: '4px 0'
+                }}
+              />
+              <div
+                className="submenu-item"
+                onClick={() => {
+                  handleOpenContextModal(
+                    contextMenu.originalIndex,
+                    contextMenu.lineText,
+                    contextMenu.timestamp
+                  )
+                  setContextMenu(null)
+                }}
+              >
+                <span>{t('contextMenu.inspectInModal')}</span>
+              </div>
+            </div>
+          </div>
+
           {/* Open in IntelliJ IDEA */}
           {(() => {
             const stackRef = parseStackReference(contextMenu.lineText)
@@ -2096,6 +2316,16 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
         <Space size="middle">
           <span>v{appVersion}</span>
           <span>{t('statusBar.matchesFound', { count: matchCount })}</span>
+          {Object.keys(expandedContexts).length > 0 && (
+            <Tag
+              color="purple"
+              closable
+              onClose={handleClearAllContexts}
+              style={{ margin: 0, fontSize: 10, cursor: 'pointer' }}
+            >
+              Context: {Object.keys(expandedContexts).length} active (Clear)
+            </Tag>
+          )}
           {session.updateTime && (
             <Tag color="cyan" style={{ margin: 0, fontSize: 10 }}>
               {t('statusBar.fileUpdated', { time: session.updateTime, ago: timeAgoText })}
@@ -2137,6 +2367,150 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
           </Button>
         </Space>
       </div>
+
+      {/* Context View Modal */}
+      {contextModalLine !== null && (() => {
+        const rawLines = session.content ? session.content.split(/\r?\n/) : []
+        const startLine = Math.max(0, contextModalLine.originalIndex - contextModalRange)
+        const endLine = Math.min(rawLines.length - 1, contextModalLine.originalIndex + contextModalRange)
+        const displayedLines = rawLines.slice(startLine, endLine + 1)
+        const maxDigits = Math.max(String(endLine + 1).length, 3)
+
+        const isInlineExpanded = Boolean(expandedContexts[contextModalLine.originalIndex])
+
+        const handleCopyModalContext = () => {
+          const textToCopy = displayedLines.join('\n')
+          navigator.clipboard.writeText(textToCopy)
+          message.success(t('contextModal.copySuccess'))
+        }
+
+        return (
+          <Modal
+            title={
+              <Space>
+                <BranchesOutlined style={{ color: '#a855f7' }} />
+                <span>{t('contextModal.title', { line: contextModalLine.originalIndex + 1 })}</span>
+              </Space>
+            }
+            open={true}
+            onCancel={() => setContextModalLine(null)}
+            width={900}
+            footer={[
+              <Button
+                key="copy"
+                icon={<CopyOutlined />}
+                onClick={handleCopyModalContext}
+              >
+                {t('contextModal.copyContext')}
+              </Button>,
+              <Button
+                key="inline"
+                type={isInlineExpanded ? 'default' : 'primary'}
+                danger={isInlineExpanded}
+                onClick={() => {
+                  if (isInlineExpanded) {
+                    handleCollapseContextInline(contextModalLine.originalIndex)
+                  } else {
+                    handleExpandContextInline(contextModalLine.originalIndex, contextModalRange)
+                  }
+                }}
+              >
+                {isInlineExpanded
+                  ? t('contextModal.collapseInline')
+                  : t('contextModal.expandInline')}
+              </Button>,
+              <Button key="close" onClick={() => setContextModalLine(null)}>
+                Close
+              </Button>
+            ]}
+          >
+            <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontWeight: 500, fontSize: 13 }}>{t('contextModal.rangeLabel')}</span>
+              <Radio.Group
+                value={contextModalRange}
+                onChange={(e) => setContextModalRange(e.target.value)}
+                size="small"
+              >
+                <Radio.Button value={5}>±5</Radio.Button>
+                <Radio.Button value={10}>±10</Radio.Button>
+                <Radio.Button value={20}>±20</Radio.Button>
+                <Radio.Button value={50}>±50</Radio.Button>
+              </Radio.Group>
+              <InputNumber
+                min={1}
+                max={200}
+                value={contextModalRange}
+                onChange={(val) => val && setContextModalRange(val)}
+                size="small"
+                style={{ width: 80 }}
+              />
+            </div>
+
+            <div
+              style={{
+                fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                fontSize: session.fontSize || 13,
+                lineHeight: '1.6',
+                maxHeight: '480px',
+                overflowY: 'auto',
+                backgroundColor: isDark ? '#0f0f11' : '#f8fafc',
+                border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
+                borderRadius: '6px',
+                padding: '8px 4px'
+              }}
+            >
+              {displayedLines.map((lineText, idx) => {
+                const currentOriginalIndex = startLine + idx
+                const isTarget = currentOriginalIndex === contextModalLine.originalIndex
+                return (
+                  <div
+                    key={currentOriginalIndex}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      backgroundColor: isTarget
+                        ? (isDark ? 'rgba(234, 179, 8, 0.25)' : 'rgba(254, 240, 138, 0.75)')
+                        : 'transparent',
+                      borderLeft: isTarget
+                        ? '4px solid #eab308'
+                        : '4px solid transparent',
+                      padding: '2px 8px',
+                      borderRadius: '2px'
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        minWidth: `${maxDigits}ch`,
+                        textAlign: 'right',
+                        marginRight: '12px',
+                        opacity: isTarget ? 0.95 : 0.45,
+                        fontWeight: isTarget ? 700 : 400,
+                        userSelect: 'none',
+                        color: isTarget ? '#eab308' : 'inherit'
+                      }}
+                    >
+                      {currentOriginalIndex + 1}
+                    </span>
+                    {isTarget ? (
+                      <Tag color="gold" style={{ fontSize: 10, margin: '2px 6px 0 0', flexShrink: 0, fontWeight: 700 }}>
+                        {t('contextModal.targetLineTag')}
+                      </Tag>
+                    ) : (
+                      <Tag style={{ fontSize: 10, margin: '2px 6px 0 0', opacity: 0.65, flexShrink: 0 }}>
+                        {t('contextModal.contextLineTag')}
+                      </Tag>
+                    )}
+                    <span style={{ whiteSpace: session.wordWrap ? 'pre-wrap' : 'pre', wordBreak: session.wordWrap ? 'break-all' : 'normal', flex: 1 }}>
+                      {lineText}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </Modal>
+        )
+      })()}
     </div>
   )
 }

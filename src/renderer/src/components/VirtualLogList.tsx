@@ -7,6 +7,8 @@ export interface LogLineData {
   originalIndex: number
   timestamp: string | null
   level?: LogLevel
+  isContext?: boolean
+  contextTargetIndex?: number
 }
 
 export interface BookmarkData {
@@ -517,6 +519,7 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
             if (markColor) className += ` marked-${markColor}`
             if (isBookmarked) className += ' is-bookmarked'
             if (isFlashing) className += ' flash-highlight'
+            if (item.isContext) className += ' is-context-line'
 
             const lineStyle: React.CSSProperties = {
               position: 'absolute',
@@ -548,6 +551,10 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
                 lineStyle.color = config.text
                 lineStyle.borderLeft = `4px solid ${config.border}`
               }
+            } else if (item.isContext) {
+              lineStyle.backgroundColor = isDark ? 'rgba(168, 85, 247, 0.12)' : 'rgba(168, 85, 247, 0.06)'
+              lineStyle.borderLeft = isDark ? '4px dashed #a855f7' : '4px dashed #9333ea'
+              lineStyle.opacity = 0.9
             } else if (item.level === 'ERROR') {
               lineStyle.backgroundColor = isDark ? 'rgba(244, 63, 94, 0.32)' : '#ffe4e6'
               lineStyle.borderLeft = isDark ? '4px solid #f43f5e' : '4px solid #e11d48'
@@ -583,6 +590,26 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
                     }}
                   >
                     {originalIndex + 1}
+                  </span>
+                )}
+                {item.isContext && (
+                  <span
+                    style={{
+                      display: 'inline-block',
+                      padding: '0 5px',
+                      marginRight: '6px',
+                      borderRadius: '3px',
+                      fontSize: '0.75em',
+                      fontWeight: 600,
+                      lineHeight: '1.4',
+                      backgroundColor: isDark ? 'rgba(168, 85, 247, 0.25)' : 'rgba(147, 51, 234, 0.15)',
+                      color: isDark ? '#c084fc' : '#7e22ce',
+                      border: isDark ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid rgba(147, 51, 234, 0.3)',
+                      userSelect: 'none',
+                      flexShrink: 0
+                    }}
+                  >
+                    Context
                   </span>
                 )}
                 <span

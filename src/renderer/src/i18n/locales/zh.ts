@@ -47,7 +47,23 @@ export const zh = {
     clearMark: '清除高亮',
     openInIdea: '在 IntelliJ IDEA 中打开 ({{file}})',
     openInIdeaProject: '在 IntelliJ IDEA 中打开项目',
-    configureSourceRoot: '设置项目源码根目录...'
+    configureSourceRoot: '设置项目源码根目录...',
+    viewContext: '上下文视图 (Before/After)',
+    context5Lines: '展开 ±5 行上下文',
+    context10Lines: '展开 ±10 行上下文',
+    context20Lines: '展开 ±20 行上下文',
+    collapseContext: '收起上下文内容',
+    inspectInModal: '弹窗查看上下文...'
+  },
+  contextModal: {
+    title: '日志上下文视图 - 第 #{{line}} 行',
+    rangeLabel: '上下文范围 (±行数):',
+    copyContext: '复制上下文内容',
+    copySuccess: '上下文日志已复制到剪贴板',
+    collapseInline: '收起内嵌上下文',
+    expandInline: '展开内嵌上下文',
+    targetLineTag: '目标日志行',
+    contextLineTag: '上下文'
   },
   idea: {
     sourceRootTitle: '项目源码根目录 (Source Root)',
