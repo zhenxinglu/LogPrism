@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { ConfigProvider, theme, message, Modal, Progress, Button, Spin } from 'antd'
 import enUS from 'antd/locale/en_US'
 import zhCN from 'antd/locale/zh_CN'
@@ -12,6 +12,15 @@ import { getSavedLanguage, setSavedLanguage } from '../i18n'
 
 const defaultStart = dayjs('00:00:00', 'HH:mm:ss')
 const defaultEnd = dayjs('23:59:59.999', 'HH:mm:ss.SSS')
+
+const MAX_LOG_BUFFER_LINES = 50000
+
+function capLogContent(content: string, maxLines = MAX_LOG_BUFFER_LINES): string {
+  if (!content) return ''
+  const lines = content.split(/\r?\n/)
+  if (lines.length <= maxLines) return content
+  return lines.slice(lines.length - maxLines).join('\n')
+}
 
 export interface PersistedFilterState {
   includeKeywords?: string
@@ -234,6 +243,10 @@ export default function LogViewer(): React.JSX.Element {
               fileContent = (lineRes && lineRes.lines) ? lineRes.lines.join('\n') : ''
             }
 
+            if (fileContent) {
+              fileContent = capLogContent(fileContent)
+            }
+
             const initialTab: LogTabSession = {
               ...createInitialTabSession('tab-1', fileName, lastFileRes.filePath, initialShowTimeline, initialFilterState),
               content: fileContent || '',
@@ -351,12 +364,15 @@ export default function LogViewer(): React.JSX.Element {
 
         let fileContent = data.content
         if (fileContent === null && data.totalLines) {
-          if (data.totalLines <= 50000) {
-            const lineRes = await window.api.readLogLines(filePath, 0, data.totalLines)
-            if (lineRes && lineRes.lines) {
-              fileContent = lineRes.lines.join('\n')
-            }
+          const lineCountToRead = Math.min(data.totalLines, 50000)
+          const lineRes = await window.api.readLogLines(filePath, 0, lineCountToRead)
+          if (lineRes && lineRes.lines) {
+            fileContent = lineRes.lines.join('\n')
           }
+        }
+
+        if (fileContent !== null && fileContent !== undefined) {
+          fileContent = capLogContent(fileContent)
         }
 
         setTabs((prevTabs) =>
@@ -364,10 +380,12 @@ export default function LogViewer(): React.JSX.Element {
             const tPath = (t.filePath || '').replace(/\\/g, '/').toLowerCase()
             const dPath = (filePath || '').replace(/\\/g, '/').toLowerCase()
             if (tPath === dPath || t.filePath === filePath) {
+              const updatedContent = fileContent !== null ? fileContent : t.content
+              const updatedLinesCount = updatedContent ? updatedContent.split(/\r?\n/).length : 0
               return {
                 ...t,
-                content: fileContent !== null ? fileContent : t.content,
-                totalLines: data.totalLines || t.totalLines,
+                content: updatedContent,
+                totalLines: updatedLinesCount || data.totalLines || t.totalLines,
                 fileSize: data.fileSize || t.fileSize,
                 updateTime: now.format('HH:mm:ss'),
                 lastUpdateTimestamp: now.valueOf()
@@ -381,16 +399,28 @@ export default function LogViewer(): React.JSX.Element {
     return () => unsubscribe()
   }, [])
 
-  // Listen to remote SSH data across all tabs
+  // Listen to remote SSH data across all tabs with chunk buffering and buffer line capping
+  const remoteBufferRef = useRef<string>('')
+
   useEffect(() => {
-    const unsubData = window.api.onRemoteLogData(({ data }) => {
+    let flushTimer: NodeJS.Timeout | null = null
+
+    const flushBuffer = () => {
+      if (!remoteBufferRef.current) return
+      const incomingChunk = remoteBufferRef.current
+      remoteBufferRef.current = ''
       const now = dayjs()
+
       setTabs((prevTabs) =>
         prevTabs.map((t) => {
           if (t.type === 'remote') {
+            const rawCombined = (t.content || '') + incomingChunk
+            const cappedContent = capLogContent(rawCombined)
+            const lineCount = cappedContent ? cappedContent.split(/\r?\n/).length : 0
             return {
               ...t,
-              content: t.content ? t.content + data : data,
+              content: cappedContent,
+              totalLines: lineCount,
               updateTime: now.format('HH:mm:ss'),
               lastUpdateTimestamp: now.valueOf()
             }
@@ -398,8 +428,22 @@ export default function LogViewer(): React.JSX.Element {
           return t
         })
       )
+    }
+
+    const unsubData = window.api.onRemoteLogData(({ data }) => {
+      remoteBufferRef.current += data
+      if (!flushTimer) {
+        flushTimer = setTimeout(() => {
+          flushTimer = null
+          flushBuffer()
+        }, 100)
+      }
     })
-    return () => unsubData()
+
+    return () => {
+      unsubData()
+      if (flushTimer) clearTimeout(flushTimer)
+    }
   }, [])
 
   // Update a single tab session
@@ -420,6 +464,10 @@ export default function LogViewer(): React.JSX.Element {
         const lineCount = Math.min(res.totalLines, 50000)
         const lineRes = await window.api.readLogLines(res.filePath, 0, lineCount)
         fileContent = (lineRes && lineRes.lines) ? lineRes.lines.join('\n') : ''
+      }
+
+      if (fileContent) {
+        fileContent = capLogContent(fileContent)
       }
 
       if (res.recentFiles) setRecentFiles(res.recentFiles)
@@ -453,6 +501,10 @@ export default function LogViewer(): React.JSX.Element {
         const lineCount = Math.min(res.totalLines, 50000)
         const lineRes = await window.api.readLogLines(res.filePath, 0, lineCount)
         fileContent = (lineRes && lineRes.lines) ? lineRes.lines.join('\n') : ''
+      }
+
+      if (fileContent) {
+        fileContent = capLogContent(fileContent)
       }
       if (res.recentFiles) setRecentFiles(res.recentFiles)
 

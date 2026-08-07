@@ -348,7 +348,9 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
       while ((m = regex.exec(text)) !== null) {
         total++
         if (m.index === regex.lastIndex) regex.lastIndex++
+        if (total >= 10000) break
       }
+      if (total >= 10000) break
     }
     return total
   }, [filteredLines, searchKeyword])
@@ -1621,50 +1623,136 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
 
             {/* Log Levels Checkboxes */}
             <Col xs={24} sm={12}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
-                  <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
-                    {t('filter.logLevels')}
-                  </Text>
-                  <Space size={6}>
-                    <Button
-                      size="small"
-                      type="link"
-                      onClick={() =>
-                        onUpdateSession({
-                          selectedLogLevels: { ERROR: true, WARN: true, INFO: true, DEBUG: true, OTHER: true }
-                        })
-                      }
-                      style={{ fontSize: 11, padding: 0, height: 20 }}
-                    >
-                      All
-                    </Button>
-                    <Button
-                      size="small"
-                      type="link"
-                      onClick={() =>
-                        onUpdateSession({
-                          selectedLogLevels: { ERROR: true, WARN: true, INFO: false, DEBUG: false, OTHER: false }
-                        })
-                      }
-                      style={{ fontSize: 11, padding: 0, height: 20, color: '#ef4444' }}
-                    >
-                      Errors & Warns
-                    </Button>
-                    <Button
-                      size="small"
-                      type="link"
-                      onClick={() =>
-                        onUpdateSession({
-                          selectedLogLevels: { ERROR: false, WARN: false, INFO: false, DEBUG: false, OTHER: false }
-                        })
-                      }
-                      style={{ fontSize: 11, padding: 0, height: 20, color: isDark ? '#64748b' : '#94a3b8' }}
-                    >
-                      None
-                    </Button>
-                  </Space>
-                </div>
+              {(() => {
+                const currentLogLevels = session.selectedLogLevels || DEFAULT_LOG_LEVELS
+                const isAllSelected = (['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]).every(
+                  (lvl) => currentLogLevels[lvl]
+                )
+                const isErrorsWarnsSelected =
+                  !!currentLogLevels.ERROR &&
+                  !!currentLogLevels.WARN &&
+                  !currentLogLevels.INFO &&
+                  !currentLogLevels.DEBUG &&
+                  !currentLogLevels.OTHER
+                const isNoneSelected = (['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]).every(
+                  (lvl) => !currentLogLevels[lvl]
+                )
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 22 }}>
+                      <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
+                        {t('filter.logLevels')}
+                      </Text>
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '2px 3px',
+                          borderRadius: 6,
+                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                          border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.12)'}`,
+                          gap: 3
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateSession({
+                              selectedLogLevels: { ERROR: true, WARN: true, INFO: true, DEBUG: true, OTHER: true }
+                            })
+                          }
+                          style={{
+                            border: isAllSelected
+                              ? `1px solid ${isDark ? '#3b82f6' : '#2563eb'}`
+                              : `1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)'}`,
+                            outline: 'none',
+                            cursor: 'pointer',
+                            fontSize: 10,
+                            fontWeight: isAllSelected ? 600 : 400,
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            lineHeight: '14px',
+                            transition: 'all 0.15s ease',
+                            color: isAllSelected
+                              ? isDark ? '#60a5fa' : '#1d4ed8'
+                              : isDark ? '#cbd5e1' : '#64748b',
+                            backgroundColor: isAllSelected
+                              ? isDark ? 'rgba(59, 130, 246, 0.22)' : '#eff6ff'
+                              : isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)',
+                            boxShadow: isAllSelected
+                              ? isDark ? '0 0 6px rgba(59, 130, 246, 0.35)' : '0 1px 2px rgba(37, 99, 235, 0.15)'
+                              : 'none'
+                          }}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateSession({
+                              selectedLogLevels: { ERROR: true, WARN: true, INFO: false, DEBUG: false, OTHER: false }
+                            })
+                          }
+                          style={{
+                            border: isErrorsWarnsSelected
+                              ? `1px solid ${isDark ? '#ef4444' : '#dc2626'}`
+                              : `1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)'}`,
+                            outline: 'none',
+                            cursor: 'pointer',
+                            fontSize: 10,
+                            fontWeight: isErrorsWarnsSelected ? 600 : 400,
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            lineHeight: '14px',
+                            transition: 'all 0.15s ease',
+                            color: isErrorsWarnsSelected
+                              ? isDark ? '#fca5a5' : '#b91c1c'
+                              : isDark ? '#cbd5e1' : '#64748b',
+                            backgroundColor: isErrorsWarnsSelected
+                              ? isDark ? 'rgba(239, 68, 68, 0.22)' : '#fef2f2'
+                              : isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)',
+                            boxShadow: isErrorsWarnsSelected
+                              ? isDark ? '0 0 6px rgba(239, 68, 68, 0.35)' : '0 1px 2px rgba(220, 38, 26, 0.15)'
+                              : 'none'
+                          }}
+                        >
+                          Errors & Warns
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onUpdateSession({
+                              selectedLogLevels: { ERROR: false, WARN: false, INFO: false, DEBUG: false, OTHER: false }
+                            })
+                          }
+                          style={{
+                            border: isNoneSelected
+                              ? `1px solid ${isDark ? 'rgba(255, 255, 255, 0.4)' : '#64748b'}`
+                              : `1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)'}`,
+                            outline: 'none',
+                            cursor: 'pointer',
+                            fontSize: 10,
+                            fontWeight: isNoneSelected ? 600 : 400,
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            lineHeight: '14px',
+                            transition: 'all 0.15s ease',
+                            color: isNoneSelected
+                              ? isDark ? '#ffffff' : '#0f172a'
+                              : isDark ? '#cbd5e1' : '#64748b',
+                            backgroundColor: isNoneSelected
+                              ? isDark ? 'rgba(255, 255, 255, 0.16)' : '#f1f5f9'
+                              : isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)',
+                            boxShadow: isNoneSelected
+                              ? isDark ? '0 1px 4px rgba(0, 0, 0, 0.4)' : '0 1px 2px rgba(0, 0, 0, 0.1)'
+                              : 'none'
+                          }}
+                        >
+                          None
+                        </button>
+                      </div>
+                    </div>
                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', minHeight: 24 }}>
                   {(['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]).map((lvl) => {
                     const currentLogLevels = session.selectedLogLevels || DEFAULT_LOG_LEVELS
@@ -1708,7 +1796,9 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                   })}
                 </div>
               </div>
-            </Col>
+            )
+          })()}
+        </Col>
           </Row>
         )}
       </div>

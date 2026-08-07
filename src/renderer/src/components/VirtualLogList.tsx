@@ -111,6 +111,19 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
     [onScroll]
   )
 
+let cachedCanvasCtx: CanvasRenderingContext2D | null = null
+function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
+  if (typeof document === 'undefined') return null
+  if (!cachedCanvasCtx) {
+    const canvas = document.createElement('canvas')
+    cachedCanvasCtx = canvas.getContext('2d')
+  }
+  if (cachedCanvasCtx) {
+    cachedCanvasCtx.font = `${fontSize}px "Fira Code", "JetBrains Mono", ui-monospace, monospace`
+  }
+  return cachedCanvasCtx
+}
+
   // Calculate layout (heights, offsets, and max width for horizontal scrolling)
   const { itemHeights, itemOffsets, totalHeight, maxLineWidth } = useMemo(() => {
     const heights: number[] = new Array(lineCount)
@@ -118,14 +131,9 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
     offsets[0] = 0
 
     let charWidth = fontSize * 0.6
-    let ctx: CanvasRenderingContext2D | null = null
-    if (typeof document !== 'undefined') {
-      const canvas = document.createElement('canvas')
-      ctx = canvas.getContext('2d')
-      if (ctx) {
-        ctx.font = `${fontSize}px "Fira Code", "JetBrains Mono", ui-monospace, monospace`
-        charWidth = ctx.measureText('M').width || fontSize * 0.6
-      }
+    const ctx = getCanvasContext(fontSize)
+    if (ctx) {
+      charWidth = ctx.measureText('M').width || fontSize * 0.6
     }
 
     const lineNumWidth = showLineNumbers ? maxLineDigits * fontSize * 0.65 + 30 : 30
@@ -232,6 +240,7 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
     const startIndices = new Array<number>(lines.length)
     const locations: { lineIndex: number; matchInLineIndex: number; globalIndex: number }[] = []
     let cumulative = 0
+    const MAX_SEARCH_LOCATIONS = 5000
 
     for (let i = 0; i < lines.length; i++) {
       startIndices[i] = cumulative
@@ -240,11 +249,13 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
       let m: RegExpExecArray | null
       let matchInLineIndex = 0
       while ((m = regex.exec(text)) !== null) {
-        locations.push({
-          lineIndex: i,
-          matchInLineIndex,
-          globalIndex: cumulative + matchInLineIndex
-        })
+        if (locations.length < MAX_SEARCH_LOCATIONS) {
+          locations.push({
+            lineIndex: i,
+            matchInLineIndex,
+            globalIndex: cumulative + matchInLineIndex
+          })
+        }
         matchInLineIndex++
         if (m.index === regex.lastIndex) {
           regex.lastIndex++

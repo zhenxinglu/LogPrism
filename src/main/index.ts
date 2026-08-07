@@ -214,7 +214,8 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'read-log-lines',
     async (_event, filePath: string, startLine: number, count: number) => {
-      return logIndexer.readLogLines(filePath, startLine, count)
+      const safeCount = Math.min(Math.max(1, count || 50000), 50000)
+      return logIndexer.readLogLines(filePath, startLine, safeCount)
     }
   )
 

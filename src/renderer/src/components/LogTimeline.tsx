@@ -73,16 +73,21 @@ export const detectLogLevel = (text: string): LogLevel => {
   return 'OTHER'
 }
 
+const TIME_HHMMSS_REGEX = /^(\d{2}):(\d{2}):(\d{2})(?:[.,](\d{1,3}))?/
+
 const parseTimestampToMs = (tsStr: string): number | null => {
   if (!tsStr) return null
-  // Try format HH:mm:ss.SSS or full ISO / date
-  let d = dayjs(tsStr, 'HH:mm:ss.SSS')
-  if (!d.isValid()) {
-    d = dayjs(tsStr, 'HH:mm:ss')
+  const m = tsStr.match(TIME_HHMMSS_REGEX)
+  if (m) {
+    const hh = parseInt(m[1], 10)
+    const mm = parseInt(m[2], 10)
+    const ss = parseInt(m[3], 10)
+    const ms = m[4] ? parseInt(m[4].padEnd(3, '0').slice(0, 3), 10) : 0
+    if (hh >= 0 && hh < 24 && mm >= 0 && mm < 60 && ss >= 0 && ss < 60) {
+      return (hh * 3600 + mm * 60 + ss) * 1000 + ms
+    }
   }
-  if (!d.isValid()) {
-    d = dayjs(tsStr)
-  }
+  const d = dayjs(tsStr)
   return d.isValid() ? d.valueOf() : null
 }
 
