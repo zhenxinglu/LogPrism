@@ -13,11 +13,22 @@ import { getSavedLanguage, setSavedLanguage } from '../i18n'
 const defaultStart = dayjs('00:00:00', 'HH:mm:ss')
 const defaultEnd = dayjs('23:59:59.999', 'HH:mm:ss.SSS')
 
+export interface PersistedFilterState {
+  includeKeywords?: string
+  excludeKeywords?: string
+  isIncludeCaseSensitive?: boolean
+  isExcludeCaseSensitive?: boolean
+  selectedLogLevels?: Record<string, boolean>
+  startTime?: string | null
+  endTime?: string | null
+}
+
 const createInitialTabSession = (
   id: string,
   title: string,
   filePath?: string,
-  defaultShowTimeline: boolean = true
+  defaultShowTimeline: boolean = true,
+  filterDefaults?: PersistedFilterState
 ): LogTabSession => ({
   id,
   title,
@@ -28,13 +39,17 @@ const createInitialTabSession = (
   fileSize: 0,
   updateTime: null,
   lastUpdateTimestamp: null,
-  includeKeywords: '',
-  excludeKeywords: '',
-  isIncludeCaseSensitive: false,
-  isExcludeCaseSensitive: false,
-  startTime: defaultStart,
-  endTime: defaultEnd,
-  selectedLogLevels: { ERROR: true, WARN: true, INFO: true, DEBUG: true, OTHER: true },
+  includeKeywords: filterDefaults?.includeKeywords ?? '',
+  excludeKeywords: filterDefaults?.excludeKeywords ?? '',
+  isIncludeCaseSensitive: filterDefaults?.isIncludeCaseSensitive ?? false,
+  isExcludeCaseSensitive: filterDefaults?.isExcludeCaseSensitive ?? false,
+  startTime: filterDefaults?.startTime !== undefined
+    ? (filterDefaults.startTime ? dayjs(filterDefaults.startTime, 'HH:mm:ss.SSS') : null)
+    : defaultStart,
+  endTime: filterDefaults?.endTime !== undefined
+    ? (filterDefaults.endTime ? dayjs(filterDefaults.endTime, 'HH:mm:ss.SSS') : null)
+    : defaultEnd,
+  selectedLogLevels: filterDefaults?.selectedLogLevels ?? { ERROR: true, WARN: true, INFO: true, DEBUG: true, OTHER: true },
   selectedFormatId: 'auto',
   detectedFormat: null,
   markedLines: {},
@@ -72,6 +87,9 @@ export default function LogViewer(): React.JSX.Element {
   const [recentFiles, setRecentFiles] = useState<string[]>([])
   const [appVersion, setAppVersion] = useState<string>('')
   const [isInitialized, setIsInitialized] = useState<boolean>(false)
+  const [savedFilterState, setSavedFilterState] = useState<PersistedFilterState | undefined>(undefined)
+
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0]
 
   // SSH Modal & Updater States
   const [remoteModalOpen, setRemoteModalOpen] = useState<boolean>(false)
@@ -179,6 +197,8 @@ export default function LogViewer(): React.JSX.Element {
       try {
         const settings = await window.api.getSettings()
         let initialShowTimeline = true
+        let initialFilterState: PersistedFilterState | undefined = undefined
+
         if (settings) {
           if (settings.themeMode) setThemeMode(settings.themeMode)
           if (settings.splitMode) setSplitMode(settings.splitMode)
@@ -190,6 +210,10 @@ export default function LogViewer(): React.JSX.Element {
           if (settings.language === 'en' || settings.language === 'zh') {
             setCurrentLang(settings.language)
             setSavedLanguage(settings.language)
+          }
+          if (settings.filterState) {
+            initialFilterState = settings.filterState
+            setSavedFilterState(settings.filterState)
           }
         }
 
@@ -211,7 +235,7 @@ export default function LogViewer(): React.JSX.Element {
             }
 
             const initialTab: LogTabSession = {
-              ...createInitialTabSession('tab-1', fileName, lastFileRes.filePath, initialShowTimeline),
+              ...createInitialTabSession('tab-1', fileName, lastFileRes.filePath, initialShowTimeline, initialFilterState),
               content: fileContent || '',
               totalLines: lastFileRes.totalLines || 0,
               fileSize: lastFileRes.fileSize || 0
@@ -223,7 +247,20 @@ export default function LogViewer(): React.JSX.Element {
             setTabs((prev) =>
               prev.map((t) => ({
                 ...t,
-                showTimeline: initialShowTimeline
+                showTimeline: initialShowTimeline,
+                ...(initialFilterState ? {
+                  includeKeywords: initialFilterState.includeKeywords ?? t.includeKeywords,
+                  excludeKeywords: initialFilterState.excludeKeywords ?? t.excludeKeywords,
+                  isIncludeCaseSensitive: initialFilterState.isIncludeCaseSensitive ?? t.isIncludeCaseSensitive,
+                  isExcludeCaseSensitive: initialFilterState.isExcludeCaseSensitive ?? t.isExcludeCaseSensitive,
+                  selectedLogLevels: initialFilterState.selectedLogLevels ?? t.selectedLogLevels,
+                  startTime: initialFilterState.startTime !== undefined
+                    ? (initialFilterState.startTime ? dayjs(initialFilterState.startTime, 'HH:mm:ss.SSS') : null)
+                    : t.startTime,
+                  endTime: initialFilterState.endTime !== undefined
+                    ? (initialFilterState.endTime ? dayjs(initialFilterState.endTime, 'HH:mm:ss.SSS') : null)
+                    : t.endTime
+                } : {})
               }))
             )
           }
@@ -231,7 +268,20 @@ export default function LogViewer(): React.JSX.Element {
           setTabs((prev) =>
             prev.map((t) => ({
               ...t,
-              showTimeline: initialShowTimeline
+              showTimeline: initialShowTimeline,
+              ...(initialFilterState ? {
+                includeKeywords: initialFilterState.includeKeywords ?? t.includeKeywords,
+                excludeKeywords: initialFilterState.excludeKeywords ?? t.excludeKeywords,
+                isIncludeCaseSensitive: initialFilterState.isIncludeCaseSensitive ?? t.isIncludeCaseSensitive,
+                isExcludeCaseSensitive: initialFilterState.isExcludeCaseSensitive ?? t.isExcludeCaseSensitive,
+                selectedLogLevels: initialFilterState.selectedLogLevels ?? t.selectedLogLevels,
+                startTime: initialFilterState.startTime !== undefined
+                  ? (initialFilterState.startTime ? dayjs(initialFilterState.startTime, 'HH:mm:ss.SSS') : null)
+                  : t.startTime,
+                endTime: initialFilterState.endTime !== undefined
+                  ? (initialFilterState.endTime ? dayjs(initialFilterState.endTime, 'HH:mm:ss.SSS') : null)
+                  : t.endTime
+              } : {})
             }))
           )
         }
@@ -247,18 +297,50 @@ export default function LogViewer(): React.JSX.Element {
   // Auto-save settings on change
   useEffect(() => {
     if (!isInitialized) return
+
+    const activeFilterState: PersistedFilterState | undefined = activeTab
+      ? {
+          includeKeywords: activeTab.includeKeywords,
+          excludeKeywords: activeTab.excludeKeywords,
+          isIncludeCaseSensitive: activeTab.isIncludeCaseSensitive,
+          isExcludeCaseSensitive: activeTab.isExcludeCaseSensitive,
+          selectedLogLevels: activeTab.selectedLogLevels,
+          startTime: activeTab.startTime ? activeTab.startTime.format('HH:mm:ss.SSS') : null,
+          endTime: activeTab.endTime ? activeTab.endTime.format('HH:mm:ss.SSS') : null
+        }
+      : undefined
+
+    if (activeFilterState) {
+      setSavedFilterState(activeFilterState)
+    }
+
     const timer = setTimeout(() => {
       window.api.saveSettings({
         themeMode,
         splitMode,
         scrollSync,
         showTimeline,
-        language: currentLang
+        language: currentLang,
+        filterState: activeFilterState
       })
       localStorage.setItem('themeMode', themeMode)
     }, 500)
     return () => clearTimeout(timer)
-  }, [isInitialized, themeMode, splitMode, scrollSync, showTimeline, currentLang])
+  }, [
+    isInitialized,
+    themeMode,
+    splitMode,
+    scrollSync,
+    showTimeline,
+    currentLang,
+    activeTab?.includeKeywords,
+    activeTab?.excludeKeywords,
+    activeTab?.isIncludeCaseSensitive,
+    activeTab?.isExcludeCaseSensitive,
+    activeTab?.selectedLogLevels,
+    activeTab?.startTime,
+    activeTab?.endTime
+  ])
 
   // Listen to file watcher updates across all tabs
   useEffect(() => {
@@ -344,7 +426,7 @@ export default function LogViewer(): React.JSX.Element {
 
       const newTabId = `tab-${Date.now()}`
       const newTab: LogTabSession = {
-        ...createInitialTabSession(newTabId, fileName, res.filePath, showTimeline),
+        ...createInitialTabSession(newTabId, fileName, res.filePath, showTimeline, savedFilterState),
         content: fileContent || '',
         totalLines: res.totalLines || 0,
         fileSize: res.fileSize || 0
@@ -386,7 +468,7 @@ export default function LogViewer(): React.JSX.Element {
       } else {
         const newTabId = `tab-${Date.now()}`
         const newTab: LogTabSession = {
-          ...createInitialTabSession(newTabId, fileName, res.filePath, showTimeline),
+          ...createInitialTabSession(newTabId, fileName, res.filePath, showTimeline, savedFilterState),
           content: fileContent || '',
           totalLines: res.totalLines || 0,
           fileSize: res.fileSize || 0
@@ -407,7 +489,7 @@ export default function LogViewer(): React.JSX.Element {
     const title = `ssh://${config.host}:${config.port || 22}${config.remotePath}`
 
     const newTab: LogTabSession = {
-      ...createInitialTabSession(newTabId, title, undefined, showTimeline),
+      ...createInitialTabSession(newTabId, title, undefined, showTimeline, savedFilterState),
       type: 'remote',
       remoteConfig: config
     }
