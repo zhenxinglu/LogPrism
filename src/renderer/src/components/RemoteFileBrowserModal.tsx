@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
-import { Modal, Input, Button, Table, Space, Alert, Breadcrumb, Typography, Tag } from 'antd'
+import { Modal, Input, Button, Table, Space, Alert, Breadcrumb, Typography, Tag, AutoComplete } from 'antd'
 import {
   FolderOutlined,
   FileTextOutlined,
@@ -7,7 +7,8 @@ import {
   ReloadOutlined,
   HomeOutlined,
   SearchOutlined,
-  CheckOutlined
+  CheckOutlined,
+  FilterOutlined
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import dayjs from 'dayjs'
@@ -39,6 +40,67 @@ const formatFileSize = (bytes: number): string => {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
 }
 
+/**
+ * Checks whether a filename matches the given extension / glob pattern.
+ * Supports patterns like "*.log", "*.txt", ".gz", "*.log*", "*.log, *.txt" or "*".
+ */
+const matchExtensionPattern = (filename: string, pattern: string): boolean => {
+  if (!pattern || pattern.trim() === '' || pattern.trim() === '*' || pattern.trim() === '*.*') {
+    return true
+  }
+
+  const name = filename.toLowerCase()
+  const subPatterns = pattern
+    .split(/[,;\s]+/)
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean)
+
+  if (subPatterns.length === 0) return true
+
+  return subPatterns.some((p) => {
+    if (p === '*' || p === '*.*') return true
+
+    if (p.startsWith('*.')) {
+      const ext = p.slice(2)
+      if (ext.includes('*') || ext.includes('?')) {
+        const regexStr =
+          '^.*\\.' +
+          ext
+            .replace(/[-[\]{}()+.,\\^$|#\s]/g, '\\$&')
+            .replace(/\*/g, '.*')
+            .replace(/\?/g, '.') +
+          '$'
+        return new RegExp(regexStr, 'i').test(name)
+      }
+      return name.endsWith('.' + ext)
+    }
+
+    if (p.startsWith('.')) {
+      const ext = p.slice(1)
+      if (ext.includes('*') || ext.includes('?')) {
+        const regexStr =
+          '^.*\\.' +
+          ext
+            .replace(/[-[\]{}()+.,\\^$|#\s]/g, '\\$&')
+            .replace(/\*/g, '.*')
+            .replace(/\?/g, '.') +
+          '$'
+        return new RegExp(regexStr, 'i').test(name)
+      }
+      return name.endsWith('.' + ext)
+    }
+
+    const regexPattern =
+      '^' +
+      p
+        .replace(/[-[\]{}()+.,\\^$|#\s]/g, '\\$&')
+        .replace(/\\\*/g, '.*')
+        .replace(/\\\?/g, '.') +
+      '$'
+    return new RegExp(regexPattern, 'i').test(name)
+  })
+}
+
 export const RemoteFileBrowserModal: React.FC<RemoteFileBrowserModalProps> = ({
   open,
   onClose,
@@ -54,6 +116,7 @@ export const RemoteFileBrowserModal: React.FC<RemoteFileBrowserModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [selectedItem, setSelectedItem] = useState<RemoteFileItem | null>(null)
   const [filterText, setFilterText] = useState<string>('')
+  const [extFilter, setExtFilter] = useState<string>('*')
 
   const fetchDirectory = useCallback(
     async (targetPath?: string): Promise<void> => {
@@ -128,10 +191,21 @@ export const RemoteFileBrowserModal: React.FC<RemoteFileBrowserModalProps> = ({
   }
 
   const filteredItems = useMemo(() => {
-    if (!filterText.trim()) return items
-    const query = filterText.toLowerCase()
-    return items.filter((item) => item.name.toLowerCase().includes(query))
-  }, [items, filterText])
+    let result = items
+
+    if (filterText.trim()) {
+      const query = filterText.toLowerCase()
+      result = result.filter((item) => item.name.toLowerCase().includes(query))
+    }
+
+    if (extFilter && extFilter.trim() !== '*' && extFilter.trim() !== '*.*') {
+      result = result.filter(
+        (item) => item.isDirectory || matchExtensionPattern(item.name, extFilter)
+      )
+    }
+
+    return result
+  }, [items, filterText, extFilter])
 
   const pathSegments = useMemo(() => {
     if (!currentPath || currentPath === '/') return []
@@ -281,14 +355,35 @@ export const RemoteFileBrowserModal: React.FC<RemoteFileBrowserModalProps> = ({
           </Breadcrumb>
         </div>
 
-        {/* Filter input */}
-        <Input
-          prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
-          placeholder={t('sshModal.filterPlaceholder')}
-          value={filterText}
-          onChange={(e) => setFilterText(e.target.value)}
-          allowClear
-        />
+        {/* Filter input & extension filter */}
+        <Space style={{ display: 'flex', width: '100%' }}>
+          <Input
+            prefix={<SearchOutlined style={{ color: '#bfbfbf' }} />}
+            placeholder={t('sshModal.filterPlaceholder')}
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            allowClear
+            style={{ flex: 1 }}
+          />
+          <AutoComplete
+            value={extFilter}
+            onChange={(val) => setExtFilter(val || '*')}
+            placeholder={t('sshModal.extFilterPlaceholder')}
+            style={{ width: 220 }}
+            allowClear
+            options={[
+              { label: t('sshModal.extAll'), value: '*' },
+              { label: t('sshModal.extLog'), value: '*.log' },
+              { label: t('sshModal.extTxt'), value: '*.txt' },
+              { label: t('sshModal.extAllLogs'), value: '*.log*, *.txt' }
+            ]}
+          >
+            <Input
+              prefix={<FilterOutlined style={{ color: '#bfbfbf' }} />}
+              placeholder={t('sshModal.extFilterPlaceholder')}
+            />
+          </AutoComplete>
+        </Space>
 
         {/* Error Alert */}
         {errorMsg && <Alert type="error" message={errorMsg} showIcon />}

@@ -167,7 +167,12 @@ export const zh = {
     typeFile: 'File',
     selectFile: 'Select File',
     noFiles: 'No files or folders found',
-    loadingDirectory: 'Connecting to server and listing files...'
+    loadingDirectory: 'Connecting to server and listing files...',
+    extFilterPlaceholder: 'Extension filter...',
+    extAll: 'All Files (*)',
+    extLog: 'Log Files (*.log)',
+    extTxt: 'Text Files (*.txt)',
+    extAllLogs: 'All Logs (*.log*, *.txt)'
   },
   timeline: {
     title: '日志密度与级别分布',
