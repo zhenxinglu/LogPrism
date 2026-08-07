@@ -12,47 +12,6 @@ import { openInIdea, detectIdeaExecutable } from './ideaLauncher'
 const watchedFilesMap = new Map<string, { unwatch: () => void; count: number }>()
 let mainWindow: BrowserWindow | null = null
 
-function startWatchingFile(filePath: string, webContents: Electron.WebContents): void {
-  const existing = watchedFilesMap.get(filePath)
-  if (existing) {
-    existing.count += 1
-    return
-  }
-
-  try {
-    const callback = async (curr: any, prev: any): Promise<void> => {
-      if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
-        try {
-          if (existsSync(filePath)) {
-            let indexInfo = logIndexer.updateIndexOnAppend(filePath)
-            if (!indexInfo) {
-              indexInfo = await logIndexer.indexFile(filePath)
-            }
-            const content = logIndexer.readFullContentIfSmall(filePath)
-            const latestIndex = indexInfo || logIndexer.getIndexInfo(filePath)
-            webContents.send('log-file-changed', {
-              filePath,
-              content,
-              totalLines: latestIndex?.totalLines || 0,
-              fileSize: latestIndex?.fileSize || 0
-            })
-          }
-        } catch (err) {
-          console.error('Failed to read updated file:', err)
-        }
-      }
-    }
-
-    watchFile(filePath, { interval: 200 }, callback)
-    watchedFilesMap.set(filePath, {
-      unwatch: () => unwatchFile(filePath, callback),
-      count: 1
-    })
-  } catch (err) {
-    console.error('Failed to start file watcher:', err)
-  }
-}
-
 function stopWatchingFile(filePath: string): void {
   const existing = watchedFilesMap.get(filePath)
   if (existing) {
@@ -65,6 +24,95 @@ function stopWatchingFile(filePath: string): void {
       }
       watchedFilesMap.delete(filePath)
     }
+  }
+}
+
+function stopAllFileWatchers(): void {
+  for (const [, item] of watchedFilesMap.entries()) {
+    try {
+      item.unwatch()
+    } catch (e) {
+      console.error('Error unwatching file:', e)
+    }
+  }
+  watchedFilesMap.clear()
+}
+
+function safeSendToMainWindow(channel: string, ...args: any[]): void {
+  try {
+    if (
+      mainWindow &&
+      !mainWindow.isDestroyed() &&
+      mainWindow.webContents &&
+      !mainWindow.webContents.isDestroyed() &&
+      !mainWindow.webContents.isCrashed()
+    ) {
+      mainWindow.webContents.send(channel, ...args)
+    }
+  } catch (err) {
+    console.warn(`Failed to send ${channel} to mainWindow:`, err)
+  }
+}
+
+function startWatchingFile(filePath: string, webContents: Electron.WebContents): void {
+  const existing = watchedFilesMap.get(filePath)
+  if (existing) {
+    existing.count += 1
+    return
+  }
+
+  try {
+    let debounceTimer: NodeJS.Timeout | null = null
+
+    const callback = async (curr: any, prev: any): Promise<void> => {
+      if (curr.mtimeMs !== prev.mtimeMs || curr.size !== prev.size) {
+        if (debounceTimer) clearTimeout(debounceTimer)
+
+        debounceTimer = setTimeout(async () => {
+          debounceTimer = null
+          try {
+            if (existsSync(filePath)) {
+              let indexInfo = logIndexer.updateIndexOnAppend(filePath)
+              if (!indexInfo) {
+                indexInfo = await logIndexer.indexFile(filePath)
+              }
+              const content = logIndexer.readFullContentIfSmall(filePath)
+              const latestIndex = indexInfo || logIndexer.getIndexInfo(filePath)
+
+              if (!webContents || webContents.isDestroyed() || webContents.isCrashed()) {
+                stopWatchingFile(filePath)
+                return
+              }
+
+              try {
+                webContents.send('log-file-changed', {
+                  filePath,
+                  content,
+                  totalLines: latestIndex?.totalLines || 0,
+                  fileSize: latestIndex?.fileSize || 0
+                })
+              } catch (sendErr) {
+                console.warn(`Failed to send log-file-changed IPC for ${filePath}, stopping watcher.`, sendErr)
+                stopWatchingFile(filePath)
+              }
+            }
+          } catch (err) {
+            console.error('Failed to read updated file:', err)
+          }
+        }, 200)
+      }
+    }
+
+    watchFile(filePath, { interval: 300 }, callback)
+    watchedFilesMap.set(filePath, {
+      unwatch: () => {
+        if (debounceTimer) clearTimeout(debounceTimer)
+        unwatchFile(filePath, callback)
+      },
+      count: 1
+    })
+  } catch (err) {
+    console.error('Failed to start file watcher:', err)
   }
 }
 
@@ -89,6 +137,12 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    stopAllFileWatchers()
+  })
+
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.warn('Renderer process gone:', details)
+    stopAllFileWatchers()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -327,19 +381,19 @@ app.whenReady().then(() => {
   autoUpdater.logger = console
 
   autoUpdater.on('checking-for-update', () => {
-    mainWindow?.webContents.send('updater:checking')
+    safeSendToMainWindow('updater:checking')
   })
   autoUpdater.on('update-available', (info) => {
-    mainWindow?.webContents.send('updater:available', info)
+    safeSendToMainWindow('updater:available', info)
   })
   autoUpdater.on('update-not-available', (info) => {
-    mainWindow?.webContents.send('updater:not-available', info)
+    safeSendToMainWindow('updater:not-available', info)
   })
   autoUpdater.on('download-progress', (progressObj) => {
-    mainWindow?.webContents.send('updater:progress', progressObj)
+    safeSendToMainWindow('updater:progress', progressObj)
   })
   autoUpdater.on('update-downloaded', (info) => {
-    mainWindow?.webContents.send('updater:downloaded', info)
+    safeSendToMainWindow('updater:downloaded', info)
   })
   autoUpdater.on('error', (err) => {
     console.error('AutoUpdater error:', err)
@@ -352,7 +406,7 @@ app.whenReady().then(() => {
         'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to the GitHub Release artifacts.'
     }
 
-    mainWindow?.webContents.send('updater:error', userMsg)
+    safeSendToMainWindow('updater:error', userMsg)
   })
 
   // Updater IPC handlers
@@ -360,12 +414,12 @@ app.whenReady().then(() => {
     try {
       if (is.dev || !app.isPackaged) {
         console.log('App is in dev mode; updater check skipped.')
-        mainWindow?.webContents.send('updater:not-available')
+        safeSendToMainWindow('updater:not-available')
         return { isDev: true, message: 'Running in development mode. Auto-update is disabled.' }
       }
       const result = await autoUpdater.checkForUpdates()
       if (!result) {
-        mainWindow?.webContents.send('updater:not-available')
+        safeSendToMainWindow('updater:not-available')
       }
       return result
     } catch (err) {
@@ -376,7 +430,7 @@ app.whenReady().then(() => {
         userMsg =
           'No release update metadata (latest.yml) found on GitHub. Please ensure latest.yml is uploaded to GitHub Release artifacts.'
       }
-      mainWindow?.webContents.send('updater:error', userMsg)
+      safeSendToMainWindow('updater:error', userMsg)
       return { error: true, message: userMsg }
     }
   })

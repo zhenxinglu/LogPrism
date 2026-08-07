@@ -172,7 +172,7 @@ class LogIndexer {
   /**
    * Reads full file content if file is small (< 20MB), or null if file is large (> 20MB).
    */
-  public readFullContentIfSmall(filePath: string, maxSizeBytes = 20 * 1024 * 1024): string | null {
+  public readFullContentIfSmall(filePath: string, maxSizeBytes = 5 * 1024 * 1024): string | null {
     try {
       const stats = statSync(filePath)
       if (stats.size > maxSizeBytes) {

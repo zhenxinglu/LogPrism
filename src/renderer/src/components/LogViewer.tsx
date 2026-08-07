@@ -13,7 +13,12 @@ import { getSavedLanguage, setSavedLanguage } from '../i18n'
 const defaultStart = dayjs('00:00:00', 'HH:mm:ss')
 const defaultEnd = dayjs('23:59:59.999', 'HH:mm:ss.SSS')
 
-const createInitialTabSession = (id: string, title: string, filePath?: string): LogTabSession => ({
+const createInitialTabSession = (
+  id: string,
+  title: string,
+  filePath?: string,
+  defaultShowTimeline: boolean = true
+): LogTabSession => ({
   id,
   title,
   type: 'local',
@@ -39,7 +44,7 @@ const createInitialTabSession = (id: string, title: string, filePath?: string): 
   wordWrap: true,
   fontSize: 13,
   showLineNumbers: true,
-  showTimeline: true
+  showTimeline: defaultShowTimeline
 })
 
 export default function LogViewer(): React.JSX.Element {
@@ -48,6 +53,7 @@ export default function LogViewer(): React.JSX.Element {
   const [themeMode, setThemeMode] = useState<'dark' | 'light'>(() => {
     return (localStorage.getItem('themeMode') as 'dark' | 'light') || 'dark'
   })
+  const [showTimeline, setShowTimeline] = useState<boolean>(true)
 
   const [tabs, setTabs] = useState<LogTabSession[]>([
     createInitialTabSession('tab-1', 'Untitled Log')
@@ -172,10 +178,15 @@ export default function LogViewer(): React.JSX.Element {
 
       try {
         const settings = await window.api.getSettings()
+        let initialShowTimeline = true
         if (settings) {
           if (settings.themeMode) setThemeMode(settings.themeMode)
           if (settings.splitMode) setSplitMode(settings.splitMode)
           if (settings.scrollSync !== undefined) setScrollSync(settings.scrollSync)
+          if (typeof settings.showTimeline === 'boolean') {
+            initialShowTimeline = settings.showTimeline
+            setShowTimeline(settings.showTimeline)
+          }
           if (settings.language === 'en' || settings.language === 'zh') {
             setCurrentLang(settings.language)
             setSavedLanguage(settings.language)
@@ -190,16 +201,17 @@ export default function LogViewer(): React.JSX.Element {
             const fileName = lastFileRes.filePath.split(/[/\\]/).pop() || lastFileRes.filePath
             let fileContent = lastFileRes.content
             if (fileContent === null && lastFileRes.totalLines) {
+              const lineCount = Math.min(lastFileRes.totalLines, 50000)
               const lineRes = await window.api.readLogLines(
                 lastFileRes.filePath,
                 0,
-                lastFileRes.totalLines || 500000
+                lineCount
               )
               fileContent = (lineRes && lineRes.lines) ? lineRes.lines.join('\n') : ''
             }
 
             const initialTab: LogTabSession = {
-              ...createInitialTabSession('tab-1', fileName, lastFileRes.filePath),
+              ...createInitialTabSession('tab-1', fileName, lastFileRes.filePath, initialShowTimeline),
               content: fileContent || '',
               totalLines: lastFileRes.totalLines || 0,
               fileSize: lastFileRes.fileSize || 0
@@ -207,7 +219,21 @@ export default function LogViewer(): React.JSX.Element {
             setTabs([initialTab])
             setActiveTabId('tab-1')
             setActiveTabIdPaneA('tab-1')
+          } else {
+            setTabs((prev) =>
+              prev.map((t) => ({
+                ...t,
+                showTimeline: initialShowTimeline
+              }))
+            )
           }
+        } else {
+          setTabs((prev) =>
+            prev.map((t) => ({
+              ...t,
+              showTimeline: initialShowTimeline
+            }))
+          )
         }
       } catch (err) {
         console.error('Initialization error:', err)
@@ -226,12 +252,13 @@ export default function LogViewer(): React.JSX.Element {
         themeMode,
         splitMode,
         scrollSync,
+        showTimeline,
         language: currentLang
       })
       localStorage.setItem('themeMode', themeMode)
     }, 500)
     return () => clearTimeout(timer)
-  }, [isInitialized, themeMode, splitMode, scrollSync, currentLang])
+  }, [isInitialized, themeMode, splitMode, scrollSync, showTimeline, currentLang])
 
   // Listen to file watcher updates across all tabs
   useEffect(() => {
@@ -242,9 +269,11 @@ export default function LogViewer(): React.JSX.Element {
 
         let fileContent = data.content
         if (fileContent === null && data.totalLines) {
-          const lineRes = await window.api.readLogLines(filePath, 0, data.totalLines)
-          if (lineRes && lineRes.lines) {
-            fileContent = lineRes.lines.join('\n')
+          if (data.totalLines <= 50000) {
+            const lineRes = await window.api.readLogLines(filePath, 0, data.totalLines)
+            if (lineRes && lineRes.lines) {
+              fileContent = lineRes.lines.join('\n')
+            }
           }
         }
 
@@ -293,6 +322,9 @@ export default function LogViewer(): React.JSX.Element {
 
   // Update a single tab session
   const updateTabSession = (tabId: string, updated: Partial<LogTabSession>) => {
+    if (typeof updated.showTimeline === 'boolean') {
+      setShowTimeline(updated.showTimeline)
+    }
     setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, ...updated } : t)))
   }
 
@@ -303,15 +335,16 @@ export default function LogViewer(): React.JSX.Element {
       const fileName = res.filePath.split(/[/\\]/).pop() || res.filePath
       let fileContent = res.content
       if (fileContent === null && res.totalLines) {
-        const lineRes = await window.api.readLogLines(res.filePath, 0, res.totalLines || 500000)
-        fileContent = lineRes.lines.join('\n')
+        const lineCount = Math.min(res.totalLines, 50000)
+        const lineRes = await window.api.readLogLines(res.filePath, 0, lineCount)
+        fileContent = (lineRes && lineRes.lines) ? lineRes.lines.join('\n') : ''
       }
 
       if (res.recentFiles) setRecentFiles(res.recentFiles)
 
       const newTabId = `tab-${Date.now()}`
       const newTab: LogTabSession = {
-        ...createInitialTabSession(newTabId, fileName, res.filePath),
+        ...createInitialTabSession(newTabId, fileName, res.filePath, showTimeline),
         content: fileContent || '',
         totalLines: res.totalLines || 0,
         fileSize: res.fileSize || 0
@@ -335,8 +368,9 @@ export default function LogViewer(): React.JSX.Element {
       const fileName = res.filePath.split(/[/\\]/).pop() || res.filePath
       let fileContent = res.content
       if ((fileContent === null || fileContent === undefined) && res.totalLines) {
-        const lineRes = await window.api.readLogLines(res.filePath, 0, res.totalLines || 500000)
-        fileContent = lineRes.lines.join('\n')
+        const lineCount = Math.min(res.totalLines, 50000)
+        const lineRes = await window.api.readLogLines(res.filePath, 0, lineCount)
+        fileContent = (lineRes && lineRes.lines) ? lineRes.lines.join('\n') : ''
       }
       if (res.recentFiles) setRecentFiles(res.recentFiles)
 
@@ -352,7 +386,7 @@ export default function LogViewer(): React.JSX.Element {
       } else {
         const newTabId = `tab-${Date.now()}`
         const newTab: LogTabSession = {
-          ...createInitialTabSession(newTabId, fileName, res.filePath),
+          ...createInitialTabSession(newTabId, fileName, res.filePath, showTimeline),
           content: fileContent || '',
           totalLines: res.totalLines || 0,
           fileSize: res.fileSize || 0
@@ -373,7 +407,7 @@ export default function LogViewer(): React.JSX.Element {
     const title = `ssh://${config.host}:${config.port || 22}${config.remotePath}`
 
     const newTab: LogTabSession = {
-      ...createInitialTabSession(newTabId, title),
+      ...createInitialTabSession(newTabId, title, undefined, showTimeline),
       type: 'remote',
       remoteConfig: config
     }
@@ -400,7 +434,7 @@ export default function LogViewer(): React.JSX.Element {
 
     const newTabs = tabs.filter((t) => t.id !== tabId)
     if (newTabs.length === 0) {
-      const fallbackTab = createInitialTabSession('tab-1', t('tabs.untitled'))
+      const fallbackTab = createInitialTabSession('tab-1', t('tabs.untitled'), undefined, showTimeline)
       setTabs([fallbackTab])
       setActiveTabId('tab-1')
       setActiveTabIdPaneA('tab-1')
@@ -437,7 +471,7 @@ export default function LogViewer(): React.JSX.Element {
     tabs.forEach((t) => {
       if (t.filePath) window.api.unwatchLogFile(t.filePath)
     })
-    const fallbackTab = createInitialTabSession('tab-1', t('tabs.untitled'))
+    const fallbackTab = createInitialTabSession('tab-1', t('tabs.untitled'), undefined, showTimeline)
     setTabs([fallbackTab])
     setActiveTabId('tab-1')
     setActiveTabIdPaneA('tab-1')
