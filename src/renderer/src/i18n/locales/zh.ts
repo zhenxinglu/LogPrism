@@ -30,7 +30,10 @@ export const zh = {
     logLevels: '日志级别',
     clearFilters: '清空过滤条件',
     expandFilter: '展开过滤器',
-    collapseFilter: '收起过滤器'
+    collapseFilter: '收起过滤器',
+    searchHistory: 'Search History',
+    clearHistory: 'Clear History',
+    deleteHistoryItem: 'Remove from history'
   },
   contextMenu: {
     setStartTime: '设为开始时间',

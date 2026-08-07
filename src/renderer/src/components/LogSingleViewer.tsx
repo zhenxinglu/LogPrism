@@ -18,7 +18,6 @@ import {
   Popconfirm,
   DatePicker,
   InputNumber,
-  Slider,
   type MenuProps
 } from 'antd'
 import {
@@ -44,7 +43,8 @@ import {
   HighlightOutlined,
   EditOutlined,
   BranchesOutlined,
-  CopyOutlined
+  CopyOutlined,
+  ClearOutlined
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { useTranslation } from 'react-i18next'
@@ -53,6 +53,7 @@ import { VirtualLogList, LogLineData, BookmarkData } from './VirtualLogList'
 import { LogTimeline, LogLevel, detectLogLevel } from './LogTimeline'
 import { SshConfig } from './RemoteLogModal'
 import { parseStackReference } from '../utils/stackTraceParser'
+import { KeywordHistoryInput } from './KeywordHistoryInput'
 
 const { Text } = Typography
 
@@ -354,6 +355,27 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
 
   const searchMatchesCountRef = useRef(searchMatchesCount)
   searchMatchesCountRef.current = searchMatchesCount
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (session.includeKeywords && session.includeKeywords.trim()) count++
+    if (session.excludeKeywords && session.excludeKeywords.trim()) count++
+    if (session.startTime || session.endTime) count++
+    const currentLevels = session.selectedLogLevels || DEFAULT_LOG_LEVELS
+    const hasDeselectedLevel = Object.values(currentLevels).some((v) => !v)
+    if (hasDeselectedLevel) count++
+    return count
+  }, [session.includeKeywords, session.excludeKeywords, session.startTime, session.endTime, session.selectedLogLevels])
+
+  const handleClearAllFilters = useCallback(() => {
+    onUpdateSession({
+      includeKeywords: '',
+      excludeKeywords: '',
+      startTime: null,
+      endTime: null,
+      selectedLogLevels: { ERROR: true, WARN: true, INFO: true, DEBUG: true, OTHER: true }
+    })
+  }, [onUpdateSession])
 
   useEffect(() => {
     if (!searchVisible || !searchKeyword) {
@@ -1341,29 +1363,6 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             </Button>
           </Tooltip>
 
-          {/* Timestamp format dropdown */}
-          <Dropdown
-            menu={{
-              items: [
-                {
-                  key: 'auto',
-                  label: `${t('header.autoDetected')} ${session.detectedFormat ? `(${session.detectedFormat.name})` : ''}`,
-                  onClick: () => onUpdateSession({ selectedFormatId: 'auto' })
-                },
-                { type: 'divider' },
-                ...TIMESTAMP_FORMATS.map((fmt) => ({
-                  key: fmt.id,
-                  label: `${fmt.name} - e.g. ${fmt.example}`,
-                  onClick: () => onUpdateSession({ selectedFormatId: fmt.id })
-                }))
-              ]
-            }}
-          >
-            <Button size="small" icon={<ClockCircleOutlined />}>
-              {activeFormat ? activeFormat.name : t('header.timestampFormat')} <DownOutlined style={{ fontSize: 10 }} />
-            </Button>
-          </Dropdown>
-
           {/* Language Switch */}
           <Dropdown
             menu={{
@@ -1414,125 +1413,220 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
           style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
           onDoubleClick={() => setIsCollapsed(!isCollapsed)}
         >
-          <Space>
+          <Space align="center" size={8}>
             <Text style={{ fontSize: 12, fontWeight: 600, color: isDark ? '#f1f5f9' : '#1e293b' }}>
               {t('header.toggleFilterPanel')}
             </Text>
+            {activeFilterCount > 0 && (
+              <Tag
+                color="blue"
+                style={{
+                  borderRadius: 10,
+                  fontSize: 10,
+                  padding: '0 8px',
+                  margin: 0,
+                  border: 'none',
+                  lineHeight: '18px'
+                }}
+              >
+                {activeFilterCount} Active
+              </Tag>
+            )}
           </Space>
-          <Button
-            type="text"
-            size="small"
-            icon={isCollapsed ? <DownOutlined /> : <UpOutlined />}
-            onClick={() => setIsCollapsed(!isCollapsed)}
-          />
+          <Space align="center" size={8}>
+            {activeFilterCount > 0 && (
+              <Button
+                size="small"
+                type="link"
+                icon={<ClearOutlined style={{ fontSize: 11 }} />}
+                onClick={handleClearAllFilters}
+                style={{
+                  fontSize: 11,
+                  padding: '0 4px',
+                  color: isDark ? '#94a3b8' : '#64748b',
+                  height: 22
+                }}
+              >
+                {t('filter.clearFilters')}
+              </Button>
+            )}
+            <Button
+              type="text"
+              size="small"
+              icon={isCollapsed ? <DownOutlined /> : <UpOutlined />}
+              onClick={() => setIsCollapsed(!isCollapsed)}
+            />
+          </Space>
         </div>
 
         {!isCollapsed && (
-          <Row gutter={[12, 8]} style={{ marginTop: 6 }}>
+          <Row gutter={[16, 10]} style={{ marginTop: 8 }}>
             {/* Include Keywords */}
-            <Col xs={24} sm={12} lg={8}>
-              <Space direction="vertical" style={{ width: '100%' }} size={2}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
+            <Col xs={24} sm={12}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
+                  <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
                     {t('filter.includeKeywords')}
                   </Text>
-                  <Space size={4} align="center">
-                    <Switch
-                      size="small"
-                      checked={session.isIncludeCaseSensitive}
-                      onChange={(checked) => onUpdateSession({ isIncludeCaseSensitive: checked })}
-                    />
-                    <Text style={{ fontSize: 11, color: session.isIncludeCaseSensitive ? (isDark ? '#e2e8f0' : '#1e293b') : (isDark ? '#94a3b8' : '#64748b') }}>
-                      {t('filter.caseSensitive')}
-                    </Text>
-                  </Space>
+                  <Tooltip title={t('filter.caseSensitiveTooltip')}>
+                    <Space size={4} align="center" style={{ cursor: 'pointer' }}>
+                      <Switch
+                        size="small"
+                        checked={session.isIncludeCaseSensitive}
+                        onChange={(checked) => onUpdateSession({ isIncludeCaseSensitive: checked })}
+                      />
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: session.isIncludeCaseSensitive ? 600 : 400,
+                          color: session.isIncludeCaseSensitive
+                            ? (isDark ? '#38bdf8' : '#0284c7')
+                            : (isDark ? '#64748b' : '#94a3b8')
+                        }}
+                      >
+                        {t('filter.caseSensitive')}
+                      </Text>
+                    </Space>
+                  </Tooltip>
                 </div>
-                <Input
+                <KeywordHistoryInput
                   size="small"
                   placeholder={t('filter.includePlaceholder')}
                   value={session.includeKeywords}
-                  onChange={(e) => onUpdateSession({ includeKeywords: e.target.value })}
+                  onChange={(val) => onUpdateSession({ includeKeywords: val })}
+                  storageKey="logprism_include_keyword_history"
+                  isDark={isDark}
                   allowClear
+                  style={{ borderRadius: 4 }}
                 />
-              </Space>
-            </Col>
-
-            {/* Exclude Keywords */}
-            <Col xs={24} sm={12} lg={8}>
-              <Space direction="vertical" style={{ width: '100%' }} size={2}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
-                    {t('filter.excludeKeywords')}
-                  </Text>
-                  <Space size={4} align="center">
-                    <Switch
-                      size="small"
-                      checked={session.isExcludeCaseSensitive}
-                      onChange={(checked) => onUpdateSession({ isExcludeCaseSensitive: checked })}
-                    />
-                    <Text style={{ fontSize: 11, color: session.isExcludeCaseSensitive ? (isDark ? '#e2e8f0' : '#1e293b') : (isDark ? '#94a3b8' : '#64748b') }}>
-                      {t('filter.caseSensitive')}
-                    </Text>
-                  </Space>
-                </div>
-                <Input
-                  size="small"
-                  placeholder={t('filter.excludePlaceholder')}
-                  value={session.excludeKeywords}
-                  onChange={(e) => onUpdateSession({ excludeKeywords: e.target.value })}
-                  allowClear
-                />
-              </Space>
+              </div>
             </Col>
 
             {/* Time Range Filter */}
-            <Col xs={24} sm={24} lg={12}>
-              <Space direction="vertical" style={{ width: '100%' }} size={2}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
+            <Col xs={24} sm={12}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
+                  <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
                     {t('filter.timeRange')}
                   </Text>
-                  {(session.startTime || session.endTime) && (
+                  {(session.startTime || session.endTime) ? (
                     <Button
                       size="small"
                       type="link"
                       onClick={() => onUpdateSession({ startTime: null, endTime: null })}
-                      style={{ fontSize: 11, padding: 0 }}
+                      style={{ fontSize: 11, padding: 0, height: 20, color: isDark ? '#38bdf8' : '#0284c7' }}
                     >
                       {t('filter.resetTime')}
                     </Button>
+                  ) : (
+                    <div style={{ height: 20 }} />
                   )}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
                   <DatePicker.TimePicker
                     size="small"
                     value={session.startTime}
                     onChange={(val) => onUpdateSession({ startTime: val })}
                     format="HH:mm:ss.SSS"
                     placeholder="00:00:00.000"
-                    style={{ flex: 1 }}
+                    style={{ width: 125, flexShrink: 0, borderRadius: 4 }}
                   />
-                  <span style={{ color: isDark ? '#94a3b8' : '#64748b' }}>~</span>
+                  <span style={{ color: isDark ? '#64748b' : '#94a3b8', fontSize: 11 }}>~</span>
                   <DatePicker.TimePicker
                     size="small"
                     value={session.endTime}
                     onChange={(val) => onUpdateSession({ endTime: val })}
                     format="HH:mm:ss.SSS"
                     placeholder="23:59:59.999"
-                    style={{ flex: 1 }}
+                    style={{ width: 125, flexShrink: 0, borderRadius: 4 }}
                   />
+
+                  {/* Timestamp format dropdown */}
+                  <Dropdown
+                    menu={{
+                      items: [
+                        {
+                          key: 'auto',
+                          label: `${t('header.autoDetected')} ${session.detectedFormat ? `(${session.detectedFormat.name})` : ''}`,
+                          onClick: () => onUpdateSession({ selectedFormatId: 'auto' })
+                        },
+                        { type: 'divider' },
+                        ...TIMESTAMP_FORMATS.map((fmt) => ({
+                          key: fmt.id,
+                          label: `${fmt.name} - e.g. ${fmt.example}`,
+                          onClick: () => onUpdateSession({ selectedFormatId: fmt.id })
+                        }))
+                      ]
+                    }}
+                  >
+                    <Button
+                      size="small"
+                      icon={<ClockCircleOutlined style={{ fontSize: 11 }} />}
+                      style={{
+                        borderRadius: 4,
+                        fontSize: 11,
+                        padding: '0 8px',
+                        marginLeft: 4,
+                        color: isDark ? '#cbd5e1' : '#475569'
+                      }}
+                    >
+                      {activeFormat ? activeFormat.name : t('header.timestampFormat')}{' '}
+                      <DownOutlined style={{ fontSize: 9 }} />
+                    </Button>
+                  </Dropdown>
                 </div>
-              </Space>
+              </div>
+            </Col>
+
+            {/* Exclude Keywords */}
+            <Col xs={24} sm={12}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
+                  <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
+                    {t('filter.excludeKeywords')}
+                  </Text>
+                  <Tooltip title={t('filter.caseSensitiveTooltip')}>
+                    <Space size={4} align="center" style={{ cursor: 'pointer' }}>
+                      <Switch
+                        size="small"
+                        checked={session.isExcludeCaseSensitive}
+                        onChange={(checked) => onUpdateSession({ isExcludeCaseSensitive: checked })}
+                      />
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: session.isExcludeCaseSensitive ? 600 : 400,
+                          color: session.isExcludeCaseSensitive
+                            ? (isDark ? '#38bdf8' : '#0284c7')
+                            : (isDark ? '#64748b' : '#94a3b8')
+                        }}
+                      >
+                        {t('filter.caseSensitive')}
+                      </Text>
+                    </Space>
+                  </Tooltip>
+                </div>
+                <KeywordHistoryInput
+                  size="small"
+                  placeholder={t('filter.excludePlaceholder')}
+                  value={session.excludeKeywords}
+                  onChange={(val) => onUpdateSession({ excludeKeywords: val })}
+                  storageKey="logprism_exclude_keyword_history"
+                  isDark={isDark}
+                  allowClear
+                  style={{ borderRadius: 4 }}
+                />
+              </div>
             </Col>
 
             {/* Log Levels Checkboxes */}
-            <Col xs={24} sm={24} lg={12}>
-              <Space direction="vertical" style={{ width: '100%' }} size={2}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Text style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>
+            <Col xs={24} sm={12}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
+                  <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
                     {t('filter.logLevels')}
                   </Text>
-                  <Space size={4}>
+                  <Space size={6}>
                     <Button
                       size="small"
                       type="link"
@@ -1541,7 +1635,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                           selectedLogLevels: { ERROR: true, WARN: true, INFO: true, DEBUG: true, OTHER: true }
                         })
                       }
-                      style={{ fontSize: 11, padding: 0 }}
+                      style={{ fontSize: 11, padding: 0, height: 20 }}
                     >
                       All
                     </Button>
@@ -1553,7 +1647,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                           selectedLogLevels: { ERROR: true, WARN: true, INFO: false, DEBUG: false, OTHER: false }
                         })
                       }
-                      style={{ fontSize: 11, padding: 0, color: '#ef4444' }}
+                      style={{ fontSize: 11, padding: 0, height: 20, color: '#ef4444' }}
                     >
                       Errors & Warns
                     </Button>
@@ -1565,13 +1659,13 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                           selectedLogLevels: { ERROR: false, WARN: false, INFO: false, DEBUG: false, OTHER: false }
                         })
                       }
-                      style={{ fontSize: 11, padding: 0, color: isDark ? '#a1a1aa' : '#64748b' }}
+                      style={{ fontSize: 11, padding: 0, height: 20, color: isDark ? '#64748b' : '#94a3b8' }}
                     >
-                      {t('filter.clearFilters')}
+                      None
                     </Button>
                   </Space>
                 </div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', minHeight: 24 }}>
                   {(['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]).map((lvl) => {
                     const currentLogLevels = session.selectedLogLevels || DEFAULT_LOG_LEVELS
                     const isSelected = !!currentLogLevels[lvl]
@@ -1580,16 +1674,16 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                       <Button
                         key={lvl}
                         size="small"
-                        icon={isSelected ? <CheckOutlined style={{ fontSize: 11 }} /> : null}
+                        icon={isSelected ? <CheckOutlined style={{ fontSize: 10 }} /> : null}
                         onClick={() =>
                           onUpdateSession({
                             selectedLogLevels: { ...currentLogLevels, [lvl]: !isSelected }
                           })
                         }
                         style={{
-                          fontSize: 11,
+                          fontSize: 10,
                           height: 24,
-                          padding: '0 10px',
+                          padding: '0 7px',
                           borderRadius: 12,
                           fontWeight: isSelected ? 600 : 400,
                           color: isSelected
@@ -1600,11 +1694,11 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                             : isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
                           borderColor: isSelected
                             ? cfg.borderSolid
-                            : isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
+                            : isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.12)',
                           boxShadow: isSelected
-                            ? `0 2px 6px ${cfg.bgSolid}40`
+                            ? `0 2px 5px ${cfg.bgSolid}33`
                             : 'none',
-                          opacity: isSelected ? 1 : 0.6,
+                          opacity: isSelected ? 1 : 0.55,
                           transition: 'all 0.15s ease-in-out'
                         }}
                       >
@@ -1613,7 +1707,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                     )
                   })}
                 </div>
-              </Space>
+              </div>
             </Col>
           </Row>
         )}

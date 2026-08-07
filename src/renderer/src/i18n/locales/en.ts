@@ -30,7 +30,10 @@ export const en = {
     logLevels: 'Log Levels',
     clearFilters: 'Clear All Filters',
     expandFilter: 'Expand Filters',
-    collapseFilter: 'Collapse Filters'
+    collapseFilter: 'Collapse Filters',
+    searchHistory: 'Search History',
+    clearHistory: 'Clear History',
+    deleteHistoryItem: 'Remove from history'
   },
   contextMenu: {
     setStartTime: 'Set as Start Time',
