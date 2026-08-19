@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 const { Text } = Typography
 
 export interface KeywordHistoryInputProps {
+  id?: string
   value: string
   onChange: (val: string) => void
   placeholder?: string
@@ -20,6 +21,7 @@ export interface KeywordHistoryInputProps {
 const MAX_HISTORY_ITEMS = 30
 
 export const KeywordHistoryInput: React.FC<KeywordHistoryInputProps> = ({
+  id,
   value,
   onChange,
   placeholder,
@@ -242,6 +244,7 @@ export const KeywordHistoryInput: React.FC<KeywordHistoryInputProps> = ({
       placement="bottomLeft"
     >
       <Input
+        id={id}
         ref={inputRef}
         size={size}
         placeholder={placeholder}

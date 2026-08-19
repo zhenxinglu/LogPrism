@@ -14,7 +14,8 @@ export const en = {
     toggleFilterPanel: 'Filter Panel',
     autoDetected: 'Auto-Detected',
     timestampFormat: 'Timestamp Format',
-    language: 'Language'
+    language: 'Language',
+    keyboardShortcuts: 'Keyboard Shortcuts (Ctrl+/)'
   },
   filter: {
     includeKeywords: 'Include Keywords',
@@ -240,5 +241,21 @@ export const en = {
     paneB: 'Pane B',
     activePane: 'Active Pane',
     selectTabPrompt: 'Select a tab to view'
+  },
+  shortcuts: {
+    title: 'Keyboard Shortcuts',
+    categoryFiltering: 'Filter & Search Controls',
+    categoryPanels: 'View & Panel Toggles',
+    categoryGeneral: 'General Shortcuts',
+    includeKeywords: 'Focus & select Include Keywords input',
+    excludeKeywords: 'Focus & select Exclude Keywords input',
+    findInLog: 'Open search bar & focus search input',
+    nextMatch: 'Jump to next search match',
+    prevMatch: 'Jump to previous search match',
+    toggleFilterPanel: 'Expand or collapse Filter Panel',
+    toggleBookmarks: 'Toggle Bookmarks & Pins drawer',
+    toggleTimeline: 'Toggle Density Timeline bar',
+    unfocusOrClose: 'Unfocus input, close search / overlay, or clear highlight',
+    showHelp: 'Show Keyboard Shortcuts reference guide'
   }
 }

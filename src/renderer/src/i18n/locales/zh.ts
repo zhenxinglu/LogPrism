@@ -14,7 +14,8 @@ export const zh = {
     toggleFilterPanel: '过滤器面板',
     autoDetected: '自动检测',
     timestampFormat: '时间格式',
-    language: '语言'
+    language: '语言',
+    keyboardShortcuts: 'Keyboard Shortcuts (Ctrl+/)'
   },
   filter: {
     includeKeywords: '包含关键词',
@@ -239,5 +240,21 @@ export const zh = {
     paneB: '分屏 B',
     activePane: '当前分屏',
     selectTabPrompt: '请选择要在分屏中展示的日志'
+  },
+  shortcuts: {
+    title: 'Keyboard Shortcuts',
+    categoryFiltering: 'Filter & Search Controls',
+    categoryPanels: 'View & Panel Toggles',
+    categoryGeneral: 'General Shortcuts',
+    includeKeywords: 'Focus & select Include Keywords input',
+    excludeKeywords: 'Focus & select Exclude Keywords input',
+    findInLog: 'Open search bar & focus search input',
+    nextMatch: 'Jump to next search match',
+    prevMatch: 'Jump to previous search match',
+    toggleFilterPanel: 'Expand or collapse Filter Panel',
+    toggleBookmarks: 'Toggle Bookmarks & Pins drawer',
+    toggleTimeline: 'Toggle Density Timeline bar',
+    unfocusOrClose: 'Unfocus input, close search / overlay, or clear highlight',
+    showHelp: 'Show Keyboard Shortcuts reference guide'
   }
 }

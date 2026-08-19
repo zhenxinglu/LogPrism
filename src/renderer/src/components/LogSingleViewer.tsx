@@ -44,125 +44,28 @@ import {
   EditOutlined,
   BranchesOutlined,
   CopyOutlined,
-  ClearOutlined
+  ClearOutlined,
+  KeyOutlined
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { useTranslation } from 'react-i18next'
 
-import { VirtualLogList, LogLineData, BookmarkData } from './VirtualLogList'
-import { LogTimeline, LogLevel, detectLogLevel } from './LogTimeline'
+import { VirtualLogList, BookmarkData } from './VirtualLogList'
+import { LogTimeline, LogLevel } from './LogTimeline'
 import { SshConfig } from './RemoteLogModal'
 import { parseStackReference } from '../utils/stackTraceParser'
 import { KeywordHistoryInput } from './KeywordHistoryInput'
+import { KeyboardShortcutsModal } from './KeyboardShortcutsModal'
+import {
+  TimestampFormat,
+  TIMESTAMP_FORMATS,
+  detectTimestampFormat
+} from '../utils/logParser'
+import { useLogFilterWorker } from '../hooks/useLogFilterWorker'
 
 const { Text } = Typography
 
-export interface TimestampFormat {
-  id: string
-  name: string
-  example: string
-  regex: RegExp
-  extractTime: (matchStr: string, fullMatch: string) => string | null
-}
 
-const formatTimestamp = (raw: string): string => {
-  const normalized = raw.replace(',', '.')
-  if (normalized.length === 8) {
-    return normalized + '.000'
-  }
-  const parts = normalized.split('.')
-  if (parts.length === 2) {
-    return `${parts[0]}.${parts[1].padEnd(3, '0').slice(0, 3)}`
-  }
-  return normalized
-}
-
-const TIMESTAMP_FORMATS: TimestampFormat[] = [
-  {
-    id: 'iso8601',
-    name: 'ISO 8601',
-    example: '2026-07-30T08:58:24.123Z',
-    regex: /^\[?(\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)(?:Z|[+-]\d{2}:?\d{2})?)\]?/,
-    extractTime: (_matchStr, fullMatch) => {
-      const m = fullMatch.match(/T(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
-      return m ? formatTimestamp(m[1]) : null
-    }
-  },
-  {
-    id: 'yyyy-mm-dd-ms',
-    name: 'YYYY-MM-DD HH:mm:ss.SSS',
-    example: '2026-07-30 08:58:24.123',
-    regex: /^\[?(\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?))\]?/,
-    extractTime: (_matchStr, fullMatch) => {
-      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
-      return m ? formatTimestamp(m[1]) : null
-    }
-  },
-  {
-    id: 'yyyy-mm-dd',
-    name: 'YYYY-MM-DD HH:mm:ss',
-    example: '2026-07-30 08:58:24',
-    regex: /^\[?(\d{4}-\d{2}-\d{2}\s+(\d{2}:\d{2}:\d{2}))\]?/,
-    extractTime: (_matchStr, fullMatch) => {
-      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2})/)
-      return m ? formatTimestamp(m[1]) : null
-    }
-  },
-  {
-    id: 'yyyy/mm/dd-ms',
-    name: 'YYYY/MM/DD HH:mm:ss.SSS',
-    example: '2026/07/30 08:58:24.123',
-    regex: /^\[?(\d{4}\/\d{2}\/\d{2}\s+(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?))\]?/,
-    extractTime: (_matchStr, fullMatch) => {
-      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
-      return m ? formatTimestamp(m[1]) : null
-    }
-  },
-  {
-    id: 'yyyy/mm/dd',
-    name: 'YYYY/MM/DD HH:mm:ss',
-    example: '2026/07/30 08:58:24',
-    regex: /^\[?(\d{4}\/\d{2}\/\d{2}\s+(\d{2}:\d{2}:\d{2}))\]?/,
-    extractTime: (_matchStr, fullMatch) => {
-      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2})/)
-      return m ? formatTimestamp(m[1]) : null
-    }
-  },
-  {
-    id: 'clf',
-    name: 'DD/MMM/YYYY:HH:mm:ss',
-    example: '30/Jul/2026:08:58:24',
-    regex: /^\[?(\d{2}\/[A-Za-z]{3}\/\d{4}:(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)(?:\s+[+-]\d{4})?)\]?/,
-    extractTime: (_matchStr, fullMatch) => {
-      const m = fullMatch.match(/:(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
-      return m ? formatTimestamp(m[1]) : null
-    }
-  },
-  {
-    id: 'syslog',
-    name: 'MMM DD HH:mm:ss',
-    example: 'Jul 30 08:58:24',
-    regex: /^\[?([A-Za-z]{3}\s+\d{1,2}\s+(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?))\]?/,
-    extractTime: (_matchStr, fullMatch) => {
-      const m = fullMatch.match(/(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)/)
-      return m ? formatTimestamp(m[1]) : null
-    }
-  },
-  {
-    id: 'hh-mm-ss-ms',
-    name: 'HH:mm:ss.SSS',
-    example: '08:58:24.123',
-    regex: /^\[?(\d{2}:\d{2}:\d{2}[.,]\d{1,3})\]?/,
-    extractTime: (matchStr) => formatTimestamp(matchStr)
-  },
-  {
-    id: 'hh-mm-ss',
-    name: 'HH:mm:ss',
-    example: '08:58:24',
-    regex: /^\[?(\d{2}:\d{2}:\d{2})\]?/,
-    extractTime: (matchStr) => formatTimestamp(matchStr)
-  }
-]
 
 const PRESET_COLORS = [
   { nameKey: 'contextMenu.colorBlue', defaultName: 'Blue', value: 'blue', color: '#3b82f6', borderLeftColor: '#1d4ed8' },
@@ -191,38 +94,7 @@ const DEFAULT_LOG_LEVELS: Record<LogLevel, boolean> = {
   OTHER: true
 }
 
-const detectTimestampFormat = (content: string): TimestampFormat | null => {
-  if (!content) return null
-  const lines = content.split(/\r?\n/).slice(0, 200)
 
-  const counts = new Map<string, number>()
-  for (const fmt of TIMESTAMP_FORMATS) {
-    counts.set(fmt.id, 0)
-  }
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    for (const fmt of TIMESTAMP_FORMATS) {
-      if (fmt.regex.test(trimmed)) {
-        counts.set(fmt.id, (counts.get(fmt.id) || 0) + 1)
-        break
-      }
-    }
-  }
-
-  let bestFmt: TimestampFormat | null = null
-  let maxCount = 0
-  for (const fmt of TIMESTAMP_FORMATS) {
-    const count = counts.get(fmt.id) || 0
-    if (count > maxCount) {
-      maxCount = count
-      bestFmt = fmt
-    }
-  }
-
-  return bestFmt
-}
 
 export interface LogTabSession {
   id: string
@@ -301,17 +173,47 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
   const [timeAgoText, setTimeAgoText] = useState('')
   const logContainerRef = useRef<HTMLDivElement>(null)
 
-  const [filteredLines, setFilteredLines] = useState<LogLineData[]>([])
-  const [unfilteredTimeLines, setUnfilteredTimeLines] = useState<LogLineData[]>([])
-  const [matchCount, setMatchCount] = useState(0)
+  // Context View state
+  const [expandedContexts, setExpandedContexts] = useState<Record<number, number>>({})
 
-  const [levelCounts, setLevelCounts] = useState<Record<LogLevel, number>>({
-    ERROR: 0,
-    WARN: 0,
-    INFO: 0,
-    DEBUG: 0,
-    OTHER: 0
+  const startTimeStr = useMemo(
+    () => (session.startTime ? session.startTime.format('HH:mm:ss.SSS') : null),
+    [session.startTime]
+  )
+  const endTimeStr = useMemo(
+    () => (session.endTime ? session.endTime.format('HH:mm:ss.SSS') : null),
+    [session.endTime]
+  )
+  const detectedFormatId = session.detectedFormat ? session.detectedFormat.id : null
+
+  const {
+    filteredLines,
+    unfilteredTimeLines,
+    matchCount,
+    levelCounts,
+    detectedFormatId: workerDetectedFormatId
+  } = useLogFilterWorker({
+    content: session.content,
+    includeKeywords: session.includeKeywords,
+    excludeKeywords: session.excludeKeywords,
+    isIncludeCaseSensitive: session.isIncludeCaseSensitive,
+    isExcludeCaseSensitive: session.isExcludeCaseSensitive,
+    selectedLogLevels: session.selectedLogLevels || DEFAULT_LOG_LEVELS,
+    startTimeStr,
+    endTimeStr,
+    selectedFormatId: session.selectedFormatId || 'auto',
+    detectedFormatId,
+    expandedContexts
   })
+
+  useEffect(() => {
+    if (workerDetectedFormatId && session.selectedFormatId === 'auto') {
+      const found = TIMESTAMP_FORMATS.find((f) => f.id === workerDetectedFormatId) || null
+      if (found && session.detectedFormat?.id !== found.id) {
+        onUpdateSession({ detectedFormat: found })
+      }
+    }
+  }, [workerDetectedFormatId, session.selectedFormatId, session.detectedFormat, onUpdateSession])
 
   // Bookmarks drawer & rename modal
   const [bookmarksDrawerOpen, setBookmarksDrawerOpen] = useState(false)
@@ -320,6 +222,9 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
   const [renameTargetIndex, setRenameTargetIndex] = useState<number | null>(null)
   const [renameInputVal, setRenameInputVal] = useState('')
   const [targetFlashLine, setTargetFlashLine] = useState<number | null>(null)
+
+  // Keyboard Shortcuts Modal state
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false)
 
   // Floating search box states (Ctrl+F / F3)
   const [searchVisible, setSearchVisible] = useState(false)
@@ -335,6 +240,15 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
 
   const searchKeywordRef = useRef(searchKeyword)
   searchKeywordRef.current = searchKeyword
+
+  const sessionRef = useRef(session)
+  sessionRef.current = session
+
+  const onUpdateSessionRef = useRef(onUpdateSession)
+  onUpdateSessionRef.current = onUpdateSession
+
+  const isShortcutsModalOpenRef = useRef(isShortcutsModalOpen)
+  isShortcutsModalOpenRef.current = isShortcutsModalOpen
 
   const searchMatchesCount = useMemo(() => {
     if (!searchKeyword || !filteredLines || filteredLines.length === 0) return 0
@@ -424,9 +338,66 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       const visible = searchVisibleRef.current
       const count = searchMatchesCountRef.current
+      const isModalOpen = isShortcutsModalOpenRef.current
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey
+      const keyLower = e.key.toLowerCase()
 
-      // Ctrl+F or Cmd+F
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+      // 0. Ctrl+C: Copy active selection or fallback to highlighted word
+      if (isCtrlOrCmd && keyLower === 'c' && !e.shiftKey && !e.altKey) {
+        const target = e.target as HTMLElement
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+          return
+        }
+        const selection = window.getSelection()
+        const selectedText = selection ? selection.toString() : ''
+        if (selectedText) {
+          return // Native copy will handle it
+        }
+        if (sessionRef.current?.highlightWord) {
+          e.preventDefault()
+          navigator.clipboard.writeText(sessionRef.current.highlightWord)
+          message.success(t('common.copied', { defaultValue: 'Copied to clipboard' }))
+          return
+        }
+      }
+
+      // 1. Ctrl+I: Focus Include Keywords input
+      if (isCtrlOrCmd && keyLower === 'i' && !e.shiftKey && !e.altKey) {
+        e.preventDefault()
+        setIsCollapsed(false)
+        setTimeout(() => {
+          const inputEl = document.getElementById('include-keywords-input') as HTMLInputElement
+          if (inputEl) {
+            inputEl.focus()
+            inputEl.select()
+          }
+        }, 50)
+        return
+      }
+
+      // 2. Ctrl+E: Focus Exclude Keywords input
+      if (isCtrlOrCmd && keyLower === 'e' && !e.shiftKey && !e.altKey) {
+        e.preventDefault()
+        setIsCollapsed(false)
+        setTimeout(() => {
+          const inputEl = document.getElementById('exclude-keywords-input') as HTMLInputElement
+          if (inputEl) {
+            inputEl.focus()
+            inputEl.select()
+          }
+        }, 50)
+        return
+      }
+
+      // 3. Ctrl+Shift+F: Toggle Filter Panel
+      if (isCtrlOrCmd && e.shiftKey && keyLower === 'f') {
+        e.preventDefault()
+        setIsCollapsed((prev) => !prev)
+        return
+      }
+
+      // 4. Ctrl+F: Open search overlay & focus search input
+      if (isCtrlOrCmd && !e.shiftKey && keyLower === 'f') {
         e.preventDefault()
         setSearchVisible(true)
         setTimeout(() => {
@@ -436,7 +407,41 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             inputEl.select()
           }
         }, 50)
-      } else if (e.key === 'F3') {
+        return
+      }
+
+      // 5. Ctrl+B: Toggle Bookmarks Drawer
+      if (isCtrlOrCmd && !e.shiftKey && keyLower === 'b') {
+        e.preventDefault()
+        setBookmarksDrawerOpen((prev) => !prev)
+        return
+      }
+
+      // 6. Ctrl+T: Toggle Density Timeline
+      if (isCtrlOrCmd && !e.shiftKey && keyLower === 't') {
+        e.preventDefault()
+        if (onUpdateSessionRef.current && sessionRef.current) {
+          onUpdateSessionRef.current({ showTimeline: !sessionRef.current.showTimeline })
+        }
+        return
+      }
+
+      // 7. Ctrl+/ or ?: Open Keyboard Shortcuts guide modal
+      if (
+        (isCtrlOrCmd && e.key === '/') ||
+        (e.key === '?' && !e.ctrlKey && !e.altKey && !e.metaKey)
+      ) {
+        const target = e.target as HTMLElement
+        if (e.key === '?' && target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+          return
+        }
+        e.preventDefault()
+        setIsShortcutsModalOpen(true)
+        return
+      }
+
+      // 8. F3: Search Next/Prev Match
+      if (e.key === 'F3') {
         const target = e.target as HTMLElement
         if (
           target &&
@@ -456,17 +461,69 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             setCurrentMatchIndex((prev) => (prev + 1) % count)
           }
         }
-      } else if (e.key === 'Escape') {
+        return
+      }
+
+      // 9. Escape: Unfocus input, close search/modal, or clear text highlight
+      if (e.key === 'Escape') {
+        const target = e.target as HTMLElement
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+          target.blur()
+          e.preventDefault()
+          return
+        }
         if (visible) {
           e.preventDefault()
           handleCloseSearch()
+          return
+        }
+        if (isModalOpen) {
+          e.preventDefault()
+          setIsShortcutsModalOpen(false)
+          return
+        }
+        if (sessionRef.current?.highlightWord) {
+          e.preventDefault()
+          if (onUpdateSessionRef.current) {
+            onUpdateSessionRef.current({ highlightWord: '' })
+          }
+          try {
+            window.getSelection()?.removeAllRanges()
+          } catch {
+            // ignore
+          }
+          return
+        }
+        const sel = window.getSelection()
+        if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
+          e.preventDefault()
+          sel.removeAllRanges()
+          return
         }
       }
     }
 
+    const handleCopy = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return
+      }
+      const selection = window.getSelection()
+      const selectedText = selection ? selection.toString() : ''
+      if (!selectedText && sessionRef.current?.highlightWord) {
+        e.clipboardData?.setData('text/plain', sessionRef.current.highlightWord)
+        e.preventDefault()
+        message.success(t('common.copied', { defaultValue: 'Copied to clipboard' }))
+      }
+    }
+
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+    window.addEventListener('copy', handleCopy)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('copy', handleCopy)
+    }
+  }, [t])
 
   // Source Code Root & IntelliJ IDEA integration states
   const [sourceRootPath, setSourceRootPath] = useState<string | null>(null)
@@ -530,8 +587,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     }
   }
 
-  // Context View state
-  const [expandedContexts, setExpandedContexts] = useState<Record<number, number>>({})
+
   const [contextModalLine, setContextModalLine] = useState<{
     originalIndex: number
     text: string
@@ -585,6 +641,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
 
   const isDark = isDarkMode
   const isProgrammaticScrollRef = useRef(false)
+  const isAtBottomRef = useRef(true)
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Sync scroll from external prop if provided
@@ -727,269 +784,21 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     return () => container.removeEventListener('wheel', handleWheel)
   }, [session.fontSize, onUpdateSession])
 
-  // Process logs with multi-line stack trace grouping & filters
+
+
+  // Reset attached-to-bottom state when session changes
   useEffect(() => {
-    if (!session.content) {
-      setFilteredLines([])
-      setUnfilteredTimeLines([])
-      setMatchCount(0)
-      setLevelCounts({ ERROR: 0, WARN: 0, INFO: 0, DEBUG: 0, OTHER: 0 })
-      return
+    if (session.tailMode) {
+      isAtBottomRef.current = true
     }
+  }, [session.id, session.tailMode])
 
-    const rawLines = session.content.split(/\r?\n/)
-    const entries: {
-      originalIndex: number
-      headerLine: string
-      lines: string[]
-      timestamp: string | null
-    }[] = []
-
-    let currentEntry: {
-      originalIndex: number
-      headerLine: string
-      lines: string[]
-      timestamp: string | null
-    } | null = null
-
-    const timeRegex = activeFormat
-      ? activeFormat.regex
-      : /^\[?(\d{2}:\d{2}:\d{2}(?:[.,]\d{1,3})?)\]?/
-
-    for (let i = 0; i < rawLines.length; i++) {
-      const line = rawLines[i]
-      const trimmed = line.trim()
-      const match = trimmed.match(timeRegex)
-
-      let extractedTime: string | null = null
-      if (match) {
-        if (activeFormat) {
-          extractedTime = activeFormat.extractTime(match[1] || match[0], match[0])
-        } else {
-          extractedTime = formatTimestamp(match[1])
-        }
-      }
-
-      if (match && extractedTime) {
-        if (currentEntry) {
-          entries.push(currentEntry)
-        }
-        currentEntry = {
-          originalIndex: i,
-          headerLine: line,
-          lines: [line],
-          timestamp: extractedTime
-        }
-      } else {
-        if (currentEntry) {
-          currentEntry.lines.push(line)
-        } else {
-          entries.push({
-            originalIndex: i,
-            headerLine: line,
-            lines: [line],
-            timestamp: null
-          })
-        }
-      }
-    }
-    if (currentEntry) {
-      entries.push(currentEntry)
-    }
-
-    // Build timeline density data
-    const timelineData: LogLineData[] = []
-    entries.forEach((entry) => {
-      timelineData.push({
-        text: entry.headerLine,
-        originalIndex: entry.originalIndex,
-        timestamp: entry.timestamp
-      })
-    })
-    setUnfilteredTimeLines(timelineData)
-
-    // Prepare keyword lists
-    const parseKeywords = (input: string, caseSensitive: boolean): string[] => {
-      const regex = /"([^"]+)"|(\S+)/g
-      const result: string[] = []
-      let m: RegExpExecArray | null
-      while ((m = regex.exec(input)) !== null) {
-        const kw = m[1] || m[2]
-        if (kw) {
-          result.push(caseSensitive ? kw : kw.toLowerCase())
-        }
-      }
-      return result
-    }
-
-    const selectedLogLevels = session.selectedLogLevels || DEFAULT_LOG_LEVELS
-    const includes = parseKeywords(session.includeKeywords || '', session.isIncludeCaseSensitive || false)
-    const excludes = parseKeywords(session.excludeKeywords || '', session.isExcludeCaseSensitive || false)
-
-    const startTimeStr = session.startTime ? session.startTime.format('HH:mm:ss.SSS') : null
-    const endTimeStr = session.endTime ? session.endTime.format('HH:mm:ss.SSS') : null
-
-    const isWithinTimeRange = (timeStr: string | null): boolean => {
-      if (!timeStr) return true
-      if (startTimeStr && timeStr < startTimeStr) return false
-      if (endTimeStr && timeStr > endTimeStr) return false
-      return true
-    }
-
-    const counts: Record<LogLevel, number> = { ERROR: 0, WARN: 0, INFO: 0, DEBUG: 0, OTHER: 0 }
-    const resultLinesData: LogLineData[] = []
-    const resultTextBlocks: string[] = []
-
-    const activeExpandedContextEntries = Object.entries(expandedContexts)
-    const hasActiveFilters = Boolean(
-      (session.includeKeywords && session.includeKeywords.trim()) ||
-      (session.excludeKeywords && session.excludeKeywords.trim()) ||
-      session.startTime ||
-      session.endTime ||
-      Object.values(session.selectedLogLevels || DEFAULT_LOG_LEVELS).some((v) => !v)
-    )
-
-    if (hasActiveFilters && activeExpandedContextEntries.length > 0) {
-      const matchedEntries: typeof entries = []
-      const matchedLineIndices = new Set<number>()
-
-      for (const entry of entries) {
-        const fullBlockText = entry.lines.join('\n')
-        const entryLevel = detectLogLevel(entry.headerLine)
-        counts[entryLevel] += 1
-
-        if (!selectedLogLevels[entryLevel]) continue
-        if (!isWithinTimeRange(entry.timestamp)) continue
-
-        if (includes.length > 0) {
-          const targetText = session.isIncludeCaseSensitive
-            ? fullBlockText
-            : fullBlockText.toLowerCase()
-          const hasMatch = includes.some((kw) => targetText.includes(kw))
-          if (!hasMatch) continue
-        }
-
-        if (excludes.length > 0) {
-          const targetText = session.isExcludeCaseSensitive
-            ? fullBlockText
-            : fullBlockText.toLowerCase()
-          const hasExclude = excludes.some((kw) => targetText.includes(kw))
-          if (hasExclude) continue
-        }
-
-        matchedEntries.push(entry)
-        for (let j = 0; j < entry.lines.length; j++) {
-          matchedLineIndices.add(entry.originalIndex + j)
-        }
-      }
-
-      const contextLineMap = new Map<number, { targetIndex: number }>()
-      for (const [targetStr, count] of activeExpandedContextEntries) {
-        const targetIndex = Number(targetStr)
-        const minIdx = Math.max(0, targetIndex - count)
-        const maxIdx = Math.min(rawLines.length - 1, targetIndex + count)
-        for (let i = minIdx; i <= maxIdx; i++) {
-          if (!matchedLineIndices.has(i)) {
-            if (!contextLineMap.has(i)) {
-              contextLineMap.set(i, { targetIndex })
-            }
-          }
-        }
-      }
-
-      for (const entry of entries) {
-        const fullBlockText = entry.lines.join('\n')
-        const entryLevel = detectLogLevel(entry.headerLine)
-        const isMatched = matchedEntries.includes(entry)
-
-        if (isMatched) {
-          resultTextBlocks.push(fullBlockText)
-          for (let j = 0; j < entry.lines.length; j++) {
-            resultLinesData.push({
-              text: entry.lines[j],
-              originalIndex: entry.originalIndex + j,
-              timestamp: j === 0 ? entry.timestamp : null,
-              level: entryLevel,
-              isContext: false
-            })
-          }
-        } else {
-          for (let j = 0; j < entry.lines.length; j++) {
-            const rawIdx = entry.originalIndex + j
-            const contextInfo = contextLineMap.get(rawIdx)
-            if (contextInfo) {
-              resultLinesData.push({
-                text: entry.lines[j],
-                originalIndex: rawIdx,
-                timestamp: j === 0 ? entry.timestamp : null,
-                level: entryLevel,
-                isContext: true,
-                contextTargetIndex: contextInfo.targetIndex
-              })
-            }
-          }
-        }
-      }
-
-      setFilteredLines(resultLinesData)
-      setMatchCount(matchedEntries.length)
-      setLevelCounts(counts)
-    } else {
-      for (const entry of entries) {
-        const fullBlockText = entry.lines.join('\n')
-        const entryLevel = detectLogLevel(entry.headerLine)
-        counts[entryLevel] += 1
-
-        if (!selectedLogLevels[entryLevel]) continue
-        if (!isWithinTimeRange(entry.timestamp)) continue
-
-        if (includes.length > 0) {
-          const targetText = session.isIncludeCaseSensitive
-            ? fullBlockText
-            : fullBlockText.toLowerCase()
-          const hasMatch = includes.some((kw) => targetText.includes(kw))
-          if (!hasMatch) continue
-        }
-
-        if (excludes.length > 0) {
-          const targetText = session.isExcludeCaseSensitive
-            ? fullBlockText
-            : fullBlockText.toLowerCase()
-          const hasExclude = excludes.some((kw) => targetText.includes(kw))
-          if (hasExclude) continue
-        }
-
-        resultTextBlocks.push(fullBlockText)
-        for (let j = 0; j < entry.lines.length; j++) {
-          resultLinesData.push({
-            text: entry.lines[j],
-            originalIndex: entry.originalIndex + j,
-            timestamp: j === 0 ? entry.timestamp : null,
-            level: entryLevel
-          })
-        }
-      }
-
-      setFilteredLines(resultLinesData)
-      setMatchCount(resultTextBlocks.length)
-      setLevelCounts(counts)
-    }
-  }, [
-    session.content,
-    session.includeKeywords,
-    session.excludeKeywords,
-    session.isIncludeCaseSensitive,
-    session.isExcludeCaseSensitive,
-    session.startTime,
-    session.endTime,
-    session.selectedLogLevels,
-    activeFormat,
-    expandedContexts
-  ])
-
-  // Auto-scroll to bottom when tailMode is enabled and lines update
+  // Auto-scroll to bottom when tailMode is enabled, lines update, and viewport is attached to bottom
   useEffect(() => {
     if (!session.tailMode || !logContainerRef.current || filteredLines.length === 0) {
+      return
+    }
+    if (!isAtBottomRef.current) {
       return
     }
     const timer = setTimeout(() => {
@@ -1059,16 +868,14 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     const maxScroll = el.scrollHeight - el.clientHeight
     if (maxScroll > 0) {
       const isAtBottom = el.scrollTop >= maxScroll - 30
-      if (!isAtBottom && session.tailMode) {
-        onUpdateSession({ tailMode: false })
-      } else if (isAtBottom && !session.tailMode) {
-        onUpdateSession({ tailMode: true })
-      }
+      isAtBottomRef.current = isAtBottom
 
       if (onScrollSync) {
         const percentage = el.scrollTop / maxScroll
         onScrollSync(percentage)
       }
+    } else {
+      isAtBottomRef.current = true
     }
   }
 
@@ -1365,6 +1172,15 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             </Button>
           </Tooltip>
 
+          {/* Keyboard Shortcuts button */}
+          <Tooltip title={t('header.keyboardShortcuts')}>
+            <Button
+              size="small"
+              icon={<KeyOutlined />}
+              onClick={() => setIsShortcutsModalOpen(true)}
+            />
+          </Tooltip>
+
           {/* Language Switch */}
           <Dropdown
             menu={{
@@ -1467,9 +1283,24 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             <Col xs={24} sm={12}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
-                  <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
-                    {t('filter.includeKeywords')}
-                  </Text>
+                  <Space size={4} align="center">
+                    <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
+                      {t('filter.includeKeywords')}
+                    </Text>
+                    <kbd
+                      style={{
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        padding: '0 4px',
+                        borderRadius: 3,
+                        border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.15)',
+                        color: isDark ? '#38bdf8' : '#0284c7',
+                        background: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(2, 132, 199, 0.08)'
+                      }}
+                    >
+                      Ctrl+I
+                    </kbd>
+                  </Space>
                   <Tooltip title={t('filter.caseSensitiveTooltip')}>
                     <Space size={4} align="center" style={{ cursor: 'pointer' }}>
                       <Switch
@@ -1492,6 +1323,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                   </Tooltip>
                 </div>
                 <KeywordHistoryInput
+                  id="include-keywords-input"
                   size="small"
                   placeholder={t('filter.includePlaceholder')}
                   value={session.includeKeywords}
@@ -1584,9 +1416,24 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             <Col xs={24} sm={12}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
-                  <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
-                    {t('filter.excludeKeywords')}
-                  </Text>
+                  <Space size={4} align="center">
+                    <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
+                      {t('filter.excludeKeywords')}
+                    </Text>
+                    <kbd
+                      style={{
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        padding: '0 4px',
+                        borderRadius: 3,
+                        border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.15)',
+                        color: isDark ? '#38bdf8' : '#0284c7',
+                        background: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(2, 132, 199, 0.08)'
+                      }}
+                    >
+                      Ctrl+E
+                    </kbd>
+                  </Space>
                   <Tooltip title={t('filter.caseSensitiveTooltip')}>
                     <Space size={4} align="center" style={{ cursor: 'pointer' }}>
                       <Switch
@@ -1609,6 +1456,7 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                   </Tooltip>
                 </div>
                 <KeywordHistoryInput
+                  id="exclude-keywords-input"
                   size="small"
                   placeholder={t('filter.excludePlaceholder')}
                   value={session.excludeKeywords}
@@ -2522,7 +2370,19 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             <Switch
               size="small"
               checked={session.tailMode}
-              onChange={(checked) => onUpdateSession({ tailMode: checked })}
+              onChange={(checked) => {
+                onUpdateSession({ tailMode: checked })
+                if (checked) {
+                  isAtBottomRef.current = true
+                  if (logContainerRef.current) {
+                    isProgrammaticScrollRef.current = true
+                    logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
+                    setTimeout(() => {
+                      isProgrammaticScrollRef.current = false
+                    }, 100)
+                  }
+                }
+              }}
             />
             <span style={{ fontSize: 11, color: session.tailMode ? (isDark ? '#e4e4e7' : '#1e293b') : (isDark ? '#71717a' : '#64748b') }}>
               {t('statusBar.tailMode')}
@@ -2695,6 +2555,12 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
           </Modal>
         )
       })()}
+
+      <KeyboardShortcutsModal
+        open={isShortcutsModalOpen}
+        onClose={() => setIsShortcutsModalOpen(false)}
+        isDark={isDark}
+      />
     </div>
   )
 }

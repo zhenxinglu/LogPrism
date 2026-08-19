@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import { PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import type { LogLevel } from './LogTimeline'
 
@@ -50,6 +50,87 @@ const escapeHtml = (text: string): string => {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+}
+
+interface SavedSelection {
+  startLineIndex: number
+  startCharOffset: number
+  endLineIndex: number
+  endCharOffset: number
+  text: string
+}
+
+function getCharOffsetInElement(container: Node, targetNode: Node, targetOffset: number): number {
+  if (!container.contains(targetNode) && container !== targetNode) {
+    if (targetNode.compareDocumentPosition(container) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      return 0
+    } else {
+      return container.textContent?.length || 0
+    }
+  }
+
+  let charCount = 0
+  const treeWalker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null)
+  let currentNode = treeWalker.nextNode()
+
+  while (currentNode) {
+    if (currentNode === targetNode) {
+      return charCount + Math.min(targetOffset, currentNode.textContent?.length || 0)
+    }
+    charCount += currentNode.textContent?.length || 0
+    currentNode = treeWalker.nextNode()
+  }
+
+  if (targetNode.nodeType === Node.ELEMENT_NODE) {
+    let offsetCount = 0
+    for (let i = 0; i < targetNode.childNodes.length; i++) {
+      if (i === targetOffset) break
+      offsetCount += targetNode.childNodes[i].textContent?.length || 0
+    }
+    let total = 0
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null)
+    let n = walker.nextNode()
+    while (n) {
+      if (targetNode.contains(n)) {
+        return total + offsetCount
+      }
+      total += n.textContent?.length || 0
+      n = walker.nextNode()
+    }
+    return total + offsetCount
+  }
+
+  return charCount
+}
+
+function getNodeAndOffsetAtChar(
+  container: Node,
+  targetCharOffset: number
+): { node: Node; offset: number } | null {
+  const treeWalker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null)
+  let currentNode = treeWalker.nextNode()
+  let charCount = 0
+  let lastNode: Node | null = null
+  let lastLength = 0
+
+  while (currentNode) {
+    const textLen = currentNode.textContent?.length || 0
+    if (charCount + textLen >= targetCharOffset) {
+      return {
+        node: currentNode,
+        offset: Math.min(Math.max(0, targetCharOffset - charCount), textLen)
+      }
+    }
+    charCount += textLen
+    lastNode = currentNode
+    lastLength = textLen
+    currentNode = treeWalker.nextNode()
+  }
+
+  if (lastNode) {
+    return { node: lastNode, offset: lastLength }
+  }
+  return null
 }
 
 export const VirtualLogList: React.FC<VirtualLogListProps> = ({
@@ -125,9 +206,38 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
 }
 
   // Calculate layout (heights, offsets, and max width for horizontal scrolling)
-  const { itemHeights, itemOffsets, totalHeight, maxLineWidth } = useMemo(() => {
-    const heights: number[] = new Array(lineCount)
-    const offsets: number[] = new Array(lineCount + 1)
+  const { itemHeights, itemOffsets, totalHeight, maxLineWidth, isUniform } = useMemo(() => {
+    const lineNumWidth = showLineNumbers ? maxLineDigits * fontSize * 0.65 + 30 : 30
+    const bookmarkWidth = 28
+    const containerPaddingAndScrollbar = 50
+    const availableTextWidth = Math.max(
+      100,
+      containerWidth - lineNumWidth - bookmarkWidth - containerPaddingAndScrollbar
+    )
+
+    // Fast path: When word wrap is off, all row heights are identical (lineHeight)
+    if (!wordWrap) {
+      let maxTextLength = 0
+      const sampleLimit = Math.min(lineCount, 1000)
+      for (let i = 0; i < sampleLimit; i++) {
+        const len = lines[i]?.text?.length || 0
+        if (len > maxTextLength) maxTextLength = len
+      }
+      const charWidth = fontSize * 0.6
+      const estimatedMaxLineWidth = maxTextLength * charWidth + lineNumWidth + bookmarkWidth + 40
+
+      return {
+        itemHeights: null,
+        itemOffsets: null,
+        totalHeight: lineCount * lineHeight,
+        maxLineWidth: estimatedMaxLineWidth,
+        isUniform: true
+      }
+    }
+
+    // Dynamic path for word-wrap mode
+    const heights = new Float64Array(lineCount)
+    const offsets = new Float64Array(lineCount + 1)
     offsets[0] = 0
 
     let charWidth = fontSize * 0.6
@@ -135,14 +245,6 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
     if (ctx) {
       charWidth = ctx.measureText('M').width || fontSize * 0.6
     }
-
-    const lineNumWidth = showLineNumbers ? maxLineDigits * fontSize * 0.65 + 30 : 30
-    const bookmarkWidth = 28
-    const containerPaddingAndScrollbar = 50 // padding (24px) + scrollbar buffer (16px) + margin (10px)
-    const availableTextWidth = Math.max(
-      100,
-      containerWidth - lineNumWidth - bookmarkWidth - containerPaddingAndScrollbar
-    )
 
     const isAscii = /^[\x00-\x7F]*$/
     let maxTextWidth = 0
@@ -163,7 +265,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       }
 
       let wraps = 1
-      if (wordWrap && availableTextWidth > 0) {
+      if (availableTextWidth > 0) {
         wraps = Math.max(1, Math.ceil(textWidth / availableTextWidth))
       }
 
@@ -178,7 +280,8 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       itemHeights: heights,
       itemOffsets: offsets,
       totalHeight: offsets[lineCount] || 0,
-      maxLineWidth: maxTotalLineWidth
+      maxLineWidth: maxTotalLineWidth,
+      isUniform: false
     }
   }, [
     lines,
@@ -191,9 +294,12 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
     lineCount
   ])
 
-  // Binary search to find visible line indices based on dynamic offsets
+  // Binary search or direct math to find visible line indices
   const startIndex = useMemo(() => {
     const target = Math.max(0, scrollTop - overscan * lineHeight)
+    if (isUniform || !itemOffsets) {
+      return Math.max(0, Math.floor(target / lineHeight))
+    }
     let low = 0
     let high = itemOffsets.length - 2
     let ans = 0
@@ -207,10 +313,13 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       }
     }
     return ans
-  }, [itemOffsets, scrollTop, lineHeight, overscan])
+  }, [isUniform, itemOffsets, scrollTop, lineHeight, overscan])
 
   const endIndex = useMemo(() => {
     const target = scrollTop + containerHeight + overscan * lineHeight
+    if (isUniform || !itemOffsets) {
+      return Math.min(lineCount, Math.ceil(target / lineHeight))
+    }
     let low = startIndex
     let high = itemOffsets.length - 2
     let ans = lineCount
@@ -224,7 +333,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       }
     }
     return Math.min(lineCount, ans + 1)
-  }, [itemOffsets, startIndex, scrollTop, containerHeight, lineHeight, lineCount, overscan])
+  }, [isUniform, itemOffsets, startIndex, scrollTop, containerHeight, lineHeight, lineCount, overscan])
 
   const visibleLines = useMemo(() => {
     return lines.slice(startIndex, endIndex)
@@ -267,6 +376,51 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
   }, [lines, searchKeyword])
 
   const lastSetTimeRef = useRef<number>(0)
+  const savedSelectionRef = useRef<SavedSelection | null>(null)
+
+  const captureSelection = useCallback(() => {
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null
+    const range = selection.getRangeAt(0)
+    const selectedText = selection.toString()
+    if (!selectedText) return null
+
+    const startNode = range.startContainer
+    const endNode = range.endContainer
+
+    const startLineDiv = (
+      startNode.nodeType === Node.ELEMENT_NODE ? (startNode as Element) : startNode.parentElement
+    )?.closest('[data-line-index]')
+    const endLineDiv = (
+      endNode.nodeType === Node.ELEMENT_NODE ? (endNode as Element) : endNode.parentElement
+    )?.closest('[data-line-index]')
+
+    if (startLineDiv && endLineDiv) {
+      const startLineIndex = parseInt(startLineDiv.getAttribute('data-line-index') || '-1', 10)
+      const endLineIndex = parseInt(endLineDiv.getAttribute('data-line-index') || '-1', 10)
+
+      const startTextEl = startLineDiv.querySelector('.log-text-content')
+      const endTextEl = endLineDiv.querySelector('.log-text-content')
+
+      if (startLineIndex >= 0 && endLineIndex >= 0 && startTextEl && endTextEl) {
+        const startCharOffset = getCharOffsetInElement(
+          startTextEl,
+          range.startContainer,
+          range.startOffset
+        )
+        const endCharOffset = getCharOffsetInElement(endTextEl, range.endContainer, range.endOffset)
+
+        return {
+          startLineIndex,
+          startCharOffset,
+          endLineIndex,
+          endCharOffset,
+          text: selectedText
+        }
+      }
+    }
+    return null
+  }, [])
 
   const handleSelection = useCallback(() => {
     if (!onHighlightWordChange) return
@@ -275,6 +429,10 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
     const selectedText = selection.toString().trim()
     if (selectedText && !selectedText.includes('\n') && selectedText.length <= 200) {
       lastSetTimeRef.current = Date.now()
+      const selInfo = captureSelection()
+      if (selInfo) {
+        savedSelectionRef.current = selInfo
+      }
       if (selectedText !== highlightWord) {
         onHighlightWordChange(selectedText)
       }
@@ -283,7 +441,45 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
         onHighlightWordChange('')
       }
     }
-  }, [highlightWord, onHighlightWordChange])
+  }, [highlightWord, onHighlightWordChange, captureSelection])
+
+  // Synchronously restore DOM text selection across re-renders
+  useLayoutEffect(() => {
+    if (!savedSelectionRef.current) return
+    const saved = savedSelectionRef.current
+    const container = containerRef.current
+    if (!container) return
+
+    const startLineEl = container.querySelector(
+      `[data-line-index="${saved.startLineIndex}"] .log-text-content`
+    )
+    const endLineEl = container.querySelector(
+      `[data-line-index="${saved.endLineIndex}"] .log-text-content`
+    )
+    if (!startLineEl || !endLineEl) {
+      savedSelectionRef.current = null
+      return
+    }
+
+    const startPoint = getNodeAndOffsetAtChar(startLineEl, saved.startCharOffset)
+    const endPoint = getNodeAndOffsetAtChar(endLineEl, saved.endCharOffset)
+
+    if (startPoint && endPoint) {
+      try {
+        const sel = window.getSelection()
+        if (sel) {
+          const newRange = document.createRange()
+          newRange.setStart(startPoint.node, startPoint.offset)
+          newRange.setEnd(endPoint.node, endPoint.offset)
+          sel.removeAllRanges()
+          sel.addRange(newRange)
+        }
+      } catch {
+        // Fallback silently if range setting fails
+      }
+    }
+    savedSelectionRef.current = null
+  }, [highlightWord, lines, searchKeyword, currentMatchIndex, containerRef])
 
   const renderHighlightedText = useCallback(
     (text: string, lineIndex: number) => {
@@ -356,12 +552,12 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
     if (
       currentMatchIndex >= 0 &&
       currentMatchIndex < searchMatchLocations.length &&
-      itemOffsets.length > 0
+      (isUniform || (itemOffsets && itemOffsets.length > 0))
     ) {
       const target = searchMatchLocations[currentMatchIndex]
       const targetLineIdx = target.lineIndex
-      const lineTop = itemOffsets[targetLineIdx]
-      const lineH = itemHeights[targetLineIdx] || lineHeight
+      const lineTop = isUniform || !itemOffsets ? targetLineIdx * lineHeight : itemOffsets[targetLineIdx]
+      const lineH = isUniform || !itemHeights ? lineHeight : (itemHeights[targetLineIdx] || lineHeight)
 
       const container = containerRef.current
       if (!container) return
@@ -399,6 +595,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
   }, [
     currentMatchIndex,
     searchMatchLocations,
+    isUniform,
     itemOffsets,
     itemHeights,
     containerRef,
@@ -408,11 +605,11 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
 
   // Scroll to target line when targetFlashLine changes
   useEffect(() => {
-    if (targetFlashLine !== null && lines.length > 0 && itemOffsets.length > 0) {
+    if (targetFlashLine !== null && lines.length > 0) {
       const idx = lines.findIndex((l) => l.originalIndex === targetFlashLine)
-      if (idx !== -1 && itemOffsets.length > idx) {
-        const lineTop = itemOffsets[idx]
-        const lineH = itemHeights[idx] || lineHeight
+      if (idx !== -1) {
+        const lineTop = isUniform || !itemOffsets ? idx * lineHeight : itemOffsets[idx]
+        const lineH = isUniform || !itemHeights ? lineHeight : (itemHeights[idx] || lineHeight)
         const container = containerRef.current
         if (container) {
           const cHeight = container.clientHeight || containerHeight
@@ -425,7 +622,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
         }
       }
     }
-  }, [targetFlashLine, lines, itemOffsets, itemHeights, containerRef, containerHeight, lineHeight])
+  }, [targetFlashLine, lines, isUniform, itemOffsets, itemHeights, containerRef, containerHeight, lineHeight])
 
   const renderLevelBadge = (level?: LogLevel) => {
     if (!level || level === 'OTHER') return null
@@ -512,8 +709,8 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
         >
           {visibleLines.map((item, idx) => {
             const actualIndex = startIndex + idx
-            const topOffset = itemOffsets[actualIndex]
-            const height = itemHeights[actualIndex]
+            const topOffset = isUniform || !itemOffsets ? actualIndex * lineHeight : itemOffsets[actualIndex]
+            const height = isUniform || !itemHeights ? lineHeight : itemHeights[actualIndex]
             const originalIndex = item.originalIndex
             const markColor = (markedLines || {})[originalIndex]
             const isBookmarked = !!((bookmarkedLines || {})[originalIndex])
@@ -579,6 +776,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
                 key={`${originalIndex}-${actualIndex}`}
                 className={className}
                 data-original-index={originalIndex}
+                data-line-index={actualIndex}
                 data-timestamp={item.timestamp || ''}
                 data-level={item.level || 'OTHER'}
                 onContextMenu={(e) => onContextMenu(e, originalIndex, item.timestamp, item.text)}
@@ -679,6 +877,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
                 )}
                 {renderLevelBadge(item.level)}
                 <span
+                  className="log-text-content"
                   dangerouslySetInnerHTML={{
                     __html: renderHighlightedText(item.text, actualIndex)
                   }}

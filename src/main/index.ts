@@ -235,7 +235,7 @@ app.whenReady().then(() => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
       title: 'Open Log File',
       filters: [
-        { name: 'Log Files', extensions: ['log', 'txt'] },
+        { name: 'Log Files', extensions: ['log', 'txt', 'gz'] },
         { name: 'All Files', extensions: ['*'] }
       ],
       properties: ['openFile']
