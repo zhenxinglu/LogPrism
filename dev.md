@@ -174,3 +174,64 @@ electronDownload:
 
 ### 4.2 本地自动更新测试
 开发环境下如需模拟更新检测，可使用根目录下的 `dev-app-update.yml` 进行配置。
+
+---
+
+## 5. 动态日志测试机制 (Dynamic Log Testing & Mock Server)
+
+为了充分测试 LogPrism 在日志频繁追加、突发流量、多行报错堆栈、日志轮转（Logrotate）以及远程 SSH 服务器流式推送场景下的稳定性和渲染表现，项目内置了一套开箱即用的**拟真动态日志模拟与测试机制**。
+
+### 5.1 架构与特性
+
+- **双模并行驱动**：同时向本地文件（`test-logs/dynamic.log`）写入日志，并启动本地轻量级 **Mock SSH 服务端**（监听 `127.0.0.1:2222`），无需 Docker 或真实 Linux 服务器即可一键联调。
+- **逼真业务日志**：自动生成带标准毫秒时间戳、线程名、服务类名的多级别日志（INFO/WARN/ERROR/DEBUG），内嵌 JSON 报文，以及真实的 Java/Spring 多行异常堆栈追踪（Stack Trace）。
+- **交互式终端控制台（CLI Dashboard）**：运行终端内提供实时状态面板与单键快捷操控。
+
+### 5.2 启动模拟器
+
+```bash
+# 启动动态日志测试服务（默认 5 条/秒，监听 SSH 端口 2222，本地写入 test-logs/dynamic.log）
+npm run mock-logs
+
+# 自定义参数启动
+npm run mock-logs -- --rate 20               # 提高初始写入速率为 20 条/秒
+npm run mock-logs -- --port 22222            # 指定 Mock SSH 端口
+npm run mock-logs -- --file test-logs/my.log # 指定本地日志输出路径
+npm run mock-logs -- --no-ssh                # 仅测试本地日志，关闭 SSH 服务
+npm run mock-logs -- --no-local              # 仅测试 SSH 远程流，不写入本地文件
+```
+
+### 5.3 交互快捷键说明 (Interactive Hotkeys)
+
+在运行 `npm run mock-logs` 的终端窗口中，可随时按下以下按键进行实时测试：
+
+| 按键 | 功能说明 | 测试目标场景 |
+| :---: | :--- | :--- |
+| `b` | **触发突发流量 (Burst)** | 瞬间写入 500 条高频日志（含 50% 报错），测试 UI 时间轴报错尖峰（Spikes）与虚拟滚动承压能力 |
+| `e` | **注入异常堆栈 (Inject Stack)** | 实时注入多行真实异常调用栈（如 `NullPointerException`），测试多行日志智能归类与高亮 |
+| `r` | **模拟日志轮转 (Rotate File)** | 重命名当前文件为备份文件并新建空文件，测试 LogPrism 对外部 logrotate 轮转事件的容错与恢复 |
+| `t` | **模拟文件截断 (Truncate File)**| 将当前本地日志文件大小清空为 0 字节，测试客户端在文件尺寸缩小/截断时的容错 |
+| `s` | **暂停 / 恢复流 (Pause/Resume)** | 临时暂停或恢复日志生成 |
+| `+` / `=` | **加速写入 (Speed Up)** | 增加每秒生成日志条数（单次增加 5~20 条/秒，最高 200 条/秒） |
+| `-` / `_` | **减速写入 (Slow Down)** | 降低每秒生成日志条数（最低 1 条/秒） |
+| `q` | **退出模拟服务 (Quit)** | 优雅关闭 SSH 监听端口与所有文件句柄并退出 |
+
+### 5.4 在 LogPrism 中联调测试
+
+#### 1. 测试本地动态日志文件
+1. 启动模拟器：`npm run mock-logs`。
+2. 启动 LogPrism 客户端：`npm run dev`。
+3. 在 LogPrism 中点击 **Open File**，选择项目根目录下的 `test-logs/dynamic.log`。
+4. 勾选底部状态栏的 **Tail Mode**：观察日志随追加实时平滑触底滚动；在终端中按 `b` 或 `e`，观察 LogPrism 立即感知变动并同步更新时间轴与高亮。
+
+#### 2. 测试远程服务器动态日志 (SSH Tail)
+1. 确保模拟器处于运行状态（默认 SSH 端口 `2222`）。
+2. 在 LogPrism 界面右上角点击 **Remote Logs (SSH)** 图标打开连接配置弹窗。
+3. 填入 Mock SSH 连接信息：
+   - **Host**: `127.0.0.1`
+   - **Port**: `2222`
+   - **Username**: `test`
+   - **Password**: `password123`
+   - **Remote Path**: `/var/log/app.log`（或任意虚拟远程路径）
+4. 点击 **Test Connection**：弹窗提示连接成功！
+5. 点击 **Connect & Tail**：客户端即刻接入动态日志流，终端控制台的 Active Streams 计数增加，在终端按下快捷键即可实时比对远程流展示效果。

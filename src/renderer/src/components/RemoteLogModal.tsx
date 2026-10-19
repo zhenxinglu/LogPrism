@@ -10,13 +10,15 @@ import {
   Space,
   Alert,
   Popconfirm,
+  Tooltip,
   message
 } from 'antd'
 import {
   CloudServerOutlined,
   SaveOutlined,
   DeleteOutlined,
-  FolderOpenOutlined
+  FolderOpenOutlined,
+  InfoCircleOutlined
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { RemoteFileBrowserModal } from './RemoteFileBrowserModal'
@@ -32,6 +34,7 @@ export interface SshConfig {
   privateKey?: string
   passphrase?: string
   remotePath: string
+  readMode?: 'entire' | 'tail'
   tailLines?: number
 }
 
@@ -44,6 +47,42 @@ interface RemoteLogModalProps {
 
 const NEW_PROFILE_ID = 'new_profile'
 
+interface RemotePathInputProps {
+  value?: string
+  onChange?: (value: string) => void
+  onBrowse: () => void
+  placeholder?: string
+  browseButtonText: string
+  status?: '' | 'warning' | 'error'
+  id?: string
+}
+
+const RemotePathInput: React.FC<RemotePathInputProps> = ({
+  value,
+  onChange,
+  onBrowse,
+  placeholder,
+  browseButtonText,
+  status,
+  id
+}) => {
+  return (
+    <Space.Compact style={{ width: '100%' }}>
+      <Input
+        id={id}
+        status={status}
+        value={value ?? ''}
+        onChange={(e) => onChange?.(e.target.value)}
+        placeholder={placeholder}
+        style={{ flex: 1 }}
+      />
+      <Button icon={<FolderOpenOutlined />} onClick={onBrowse}>
+        {browseButtonText}
+      </Button>
+    </Space.Compact>
+  )
+}
+
 export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
   open,
   onClose,
@@ -55,12 +94,15 @@ export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
   const [profiles, setProfiles] = useState<SshConfig[]>([])
   const [selectedProfileId, setSelectedProfileId] = useState<string>(NEW_PROFILE_ID)
   const [authType, setAuthType] = useState<'password' | 'privateKey'>('password')
+  const [readMode, setReadMode] = useState<'entire' | 'tail'>('entire')
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
 
   const fillForm = useCallback(
     (config: SshConfig): void => {
       setAuthType(config.authType || 'password')
+      const targetReadMode = config.readMode || 'entire'
+      setReadMode(targetReadMode)
       form.setFieldsValue({
         name: config.name || '',
         host: config.host || '',
@@ -71,6 +113,7 @@ export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
         privateKey: config.privateKey || '',
         passphrase: config.passphrase || '',
         remotePath: config.remotePath || '',
+        readMode: targetReadMode,
         tailLines: config.tailLines || 1000
       })
       setTestResult(null)
@@ -81,6 +124,7 @@ export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
   const resetFormToNew = useCallback((): void => {
     setSelectedProfileId(NEW_PROFILE_ID)
     setAuthType('password')
+    setReadMode('entire')
     form.setFieldsValue({
       name: 'New Remote Server',
       host: '',
@@ -91,6 +135,7 @@ export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
       privateKey: '',
       passphrase: '',
       remotePath: '/var/log/syslog',
+      readMode: 'entire',
       tailLines: 1000
     })
     setTestResult(null)
@@ -165,16 +210,23 @@ export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
   const handleSaveProfile = async (): Promise<SshConfig | null> => {
     try {
       const values = await form.validateFields()
+      const currentValues = form.getFieldsValue(true)
+      const completeConfig: SshConfig = {
+        tailLines: 1000,
+        ...currentValues,
+        ...values,
+        readMode
+      }
       let updatedProfiles: SshConfig[] = []
       let savedConfig: SshConfig
 
       if (selectedProfileId === NEW_PROFILE_ID) {
         const newId = `ssh_${Date.now()}`
-        savedConfig = { ...values, id: newId }
+        savedConfig = { ...completeConfig, id: newId }
         updatedProfiles = [...profiles, savedConfig]
         setSelectedProfileId(newId)
       } else {
-        savedConfig = { ...values, id: selectedProfileId }
+        savedConfig = { ...completeConfig, id: selectedProfileId }
         updatedProfiles = profiles.map((p) => (p.id === selectedProfileId ? savedConfig : p))
       }
 
@@ -238,6 +290,7 @@ export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
 
   const handleSelectRemoteFile = (filePath: string): void => {
     form.setFieldsValue({ remotePath: filePath })
+    form.validateFields(['remotePath']).catch(() => {})
   }
 
   return (
@@ -275,7 +328,7 @@ export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
         <Form
           form={form}
           layout="vertical"
-          initialValues={{ port: 22, authType: 'password', tailLines: 1000 }}
+          initialValues={{ port: 22, authType: 'password', readMode: 'entire', tailLines: 1000 }}
         >
           <Form.Item label={t('sshModal.savedProfiles')}>
             <Select value={selectedProfileId} onChange={handleProfileChange}>
@@ -337,22 +390,63 @@ export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
           </Space>
 
           <div
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: 16
+            }}
           >
-            <Form.Item name="authType" label={t('sshModal.authMethod')}>
+            <Form.Item name="authType" label={t('sshModal.authMethod')} style={{ flex: 1 }}>
               <Radio.Group onChange={(e) => setAuthType(e.target.value)}>
                 <Radio value="password">{t('sshModal.authPassword')}</Radio>
                 <Radio value="privateKey">{t('sshModal.authPrivateKey')}</Radio>
               </Radio.Group>
             </Form.Item>
 
-            <Form.Item
-              name="tailLines"
-              label={t('sshModal.initialTailLines')}
-              style={{ width: 150 }}
-            >
-              <InputNumber min={10} max={100000} step={100} style={{ width: '100%' }} />
-            </Form.Item>
+            <div style={{ flex: 1 }}>
+              <Form.Item
+                name="readMode"
+                label={
+                  <Space size={4}>
+                    <span>{t('sshModal.readMode')}</span>
+                    <Tooltip title={t('sshModal.readModeTooltip')}>
+                      <InfoCircleOutlined style={{ color: '#8c8c8c', cursor: 'help' }} />
+                    </Tooltip>
+                  </Space>
+                }
+                style={{ marginBottom: readMode === 'tail' ? 8 : 24 }}
+              >
+                <Radio.Group
+                  value={readMode}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setReadMode(val)
+                    form.setFieldsValue({ readMode: val })
+                  }}
+                >
+                  <Radio value="entire">{t('sshModal.readEntireFile')}</Radio>
+                  <Radio value="tail">{t('sshModal.readLatestLines')}</Radio>
+                </Radio.Group>
+              </Form.Item>
+
+              {readMode === 'tail' && (
+                <Form.Item
+                  name="tailLines"
+                  label={t('sshModal.initialTailLines')}
+                  rules={[{ required: true, message: t('sshModal.tailLinesRequired') }]}
+                  style={{ marginBottom: 24 }}
+                >
+                  <InputNumber
+                    min={10}
+                    max={1000000}
+                    step={100}
+                    style={{ width: '100%' }}
+                    placeholder="1000"
+                  />
+                </Form.Item>
+              )}
+            </div>
           </div>
 
           {authType === 'password' ? (
@@ -381,12 +475,11 @@ export const RemoteLogModal: React.FC<RemoteLogModalProps> = ({
             style={{ width: '100%' }}
             rules={[{ required: true, message: t('sshModal.remotePathPlaceholder') }]}
           >
-            <Space.Compact style={{ width: '100%' }}>
-              <Input placeholder={t('sshModal.remotePathPlaceholder')} />
-              <Button icon={<FolderOpenOutlined />} onClick={handleOpenBrowser}>
-                {t('sshModal.browseServerFiles')}
-              </Button>
-            </Space.Compact>
+            <RemotePathInput
+              placeholder={t('sshModal.remotePathPlaceholder')}
+              browseButtonText={t('sshModal.browseServerFiles')}
+              onBrowse={handleOpenBrowser}
+            />
           </Form.Item>
 
           {testResult && (

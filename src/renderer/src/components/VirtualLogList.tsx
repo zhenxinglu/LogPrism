@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react'
 import { PushpinFilled, PushpinOutlined } from '@ant-design/icons'
+import { message } from 'antd'
 import type { LogLevel } from './LogTimeline'
+import { detectPayload } from '../utils/payloadDetector'
+
+export const INLINE_PAYLOAD_HEIGHT = 280
 
 export interface LogLineData {
   text: string
@@ -41,6 +45,10 @@ interface VirtualLogListProps {
   onScroll: (e: React.UIEvent<HTMLDivElement>) => void
   containerRef: React.RefObject<HTMLDivElement | null>
   isDark: boolean
+  expandedPayloadLines?: Record<number, boolean>
+  onToggleExpandPayload?: (originalIndex: number) => void
+  onOpenPayloadDrawer?: (originalIndex: number, text: string) => void
+  onHoverLine?: (originalIndex: number, text: string) => void
 }
 
 const escapeHtml = (text: string): string => {
@@ -150,7 +158,11 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
   onContextMenu,
   onScroll,
   containerRef,
-  isDark
+  isDark,
+  expandedPayloadLines,
+  onToggleExpandPayload,
+  onOpenPayloadDrawer,
+  onHoverLine
 }) => {
   const [scrollTop, setScrollTop] = useState(0)
   const [containerHeight, setContainerHeight] = useState(600)
@@ -192,18 +204,18 @@ export const VirtualLogList: React.FC<VirtualLogListProps> = ({
     [onScroll]
   )
 
-let cachedCanvasCtx: CanvasRenderingContext2D | null = null
-function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
-  if (typeof document === 'undefined') return null
-  if (!cachedCanvasCtx) {
-    const canvas = document.createElement('canvas')
-    cachedCanvasCtx = canvas.getContext('2d')
+  let cachedCanvasCtx: CanvasRenderingContext2D | null = null
+  function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
+    if (typeof document === 'undefined') return null
+    if (!cachedCanvasCtx) {
+      const canvas = document.createElement('canvas')
+      cachedCanvasCtx = canvas.getContext('2d')
+    }
+    if (cachedCanvasCtx) {
+      cachedCanvasCtx.font = `${fontSize}px "Fira Code", "JetBrains Mono", ui-monospace, monospace`
+    }
+    return cachedCanvasCtx
   }
-  if (cachedCanvasCtx) {
-    cachedCanvasCtx.font = `${fontSize}px "Fira Code", "JetBrains Mono", ui-monospace, monospace`
-  }
-  return cachedCanvasCtx
-}
 
   // Calculate layout (heights, offsets, and max width for horizontal scrolling)
   const { itemHeights, itemOffsets, totalHeight, maxLineWidth, isUniform } = useMemo(() => {
@@ -215,8 +227,10 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       containerWidth - lineNumWidth - bookmarkWidth - containerPaddingAndScrollbar
     )
 
-    // Fast path: When word wrap is off, all row heights are identical (lineHeight)
-    if (!wordWrap) {
+    const hasExpandedPayload = Object.values(expandedPayloadLines || {}).some(Boolean)
+
+    // Fast path: When word wrap is off and no payloads are expanded, all row heights are identical (lineHeight)
+    if (!wordWrap && !hasExpandedPayload) {
       let maxTextLength = 0
       const sampleLimit = Math.min(lineCount, 1000)
       for (let i = 0; i < sampleLimit; i++) {
@@ -235,7 +249,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       }
     }
 
-    // Dynamic path for word-wrap mode
+    // Dynamic path for word-wrap mode or when payloads are expanded inline
     const heights = new Float64Array(lineCount)
     const offsets = new Float64Array(lineCount + 1)
     offsets[0] = 0
@@ -265,11 +279,14 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       }
 
       let wraps = 1
-      if (availableTextWidth > 0) {
+      if (wordWrap && availableTextWidth > 0) {
         wraps = Math.max(1, Math.ceil(textWidth / availableTextWidth))
       }
 
-      const h = wraps * lineHeight
+      let h = wraps * lineHeight
+      if (expandedPayloadLines && expandedPayloadLines[lines[i].originalIndex]) {
+        h += INLINE_PAYLOAD_HEIGHT
+      }
       heights[i] = h
       offsets[i + 1] = offsets[i] + h
     }
@@ -284,14 +301,15 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       isUniform: false
     }
   }, [
+    lineCount,
     lines,
-    fontSize,
     wordWrap,
+    fontSize,
     showLineNumbers,
     maxLineDigits,
     containerWidth,
     lineHeight,
-    lineCount
+    expandedPayloadLines
   ])
 
   // Binary search or direct math to find visible line indices
@@ -333,7 +351,16 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       }
     }
     return Math.min(lineCount, ans + 1)
-  }, [isUniform, itemOffsets, startIndex, scrollTop, containerHeight, lineHeight, lineCount, overscan])
+  }, [
+    isUniform,
+    itemOffsets,
+    startIndex,
+    scrollTop,
+    containerHeight,
+    lineHeight,
+    lineCount,
+    overscan
+  ])
 
   const visibleLines = useMemo(() => {
     return lines.slice(startIndex, endIndex)
@@ -556,8 +583,10 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
     ) {
       const target = searchMatchLocations[currentMatchIndex]
       const targetLineIdx = target.lineIndex
-      const lineTop = isUniform || !itemOffsets ? targetLineIdx * lineHeight : itemOffsets[targetLineIdx]
-      const lineH = isUniform || !itemHeights ? lineHeight : (itemHeights[targetLineIdx] || lineHeight)
+      const lineTop =
+        isUniform || !itemOffsets ? targetLineIdx * lineHeight : itemOffsets[targetLineIdx]
+      const lineH =
+        isUniform || !itemHeights ? lineHeight : itemHeights[targetLineIdx] || lineHeight
 
       const container = containerRef.current
       if (!container) return
@@ -566,8 +595,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       const currentScrollTop = container.scrollTop
 
       const isVisible =
-        lineTop >= currentScrollTop + 10 &&
-        lineTop + lineH <= currentScrollTop + cHeight - 10
+        lineTop >= currentScrollTop + 10 && lineTop + lineH <= currentScrollTop + cHeight - 10
 
       if (!isVisible) {
         const targetScrollTop = Math.max(
@@ -579,9 +607,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       }
 
       const scrollActiveMatch = () => {
-        const activeElement = container.querySelector(
-          `[data-match-index="${currentMatchIndex}"]`
-        )
+        const activeElement = container.querySelector(`[data-match-index="${currentMatchIndex}"]`)
         if (activeElement) {
           activeElement.scrollIntoView({
             behavior: 'smooth',
@@ -609,7 +635,7 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
       const idx = lines.findIndex((l) => l.originalIndex === targetFlashLine)
       if (idx !== -1) {
         const lineTop = isUniform || !itemOffsets ? idx * lineHeight : itemOffsets[idx]
-        const lineH = isUniform || !itemHeights ? lineHeight : (itemHeights[idx] || lineHeight)
+        const lineH = isUniform || !itemHeights ? lineHeight : itemHeights[idx] || lineHeight
         const container = containerRef.current
         if (container) {
           const cHeight = container.clientHeight || containerHeight
@@ -622,7 +648,16 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
         }
       }
     }
-  }, [targetFlashLine, lines, isUniform, itemOffsets, itemHeights, containerRef, containerHeight, lineHeight])
+  }, [
+    targetFlashLine,
+    lines,
+    isUniform,
+    itemOffsets,
+    itemHeights,
+    containerRef,
+    containerHeight,
+    lineHeight
+  ])
 
   const renderLevelBadge = (level?: LogLevel) => {
     if (!level || level === 'OTHER') return null
@@ -709,11 +744,12 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
         >
           {visibleLines.map((item, idx) => {
             const actualIndex = startIndex + idx
-            const topOffset = isUniform || !itemOffsets ? actualIndex * lineHeight : itemOffsets[actualIndex]
+            const topOffset =
+              isUniform || !itemOffsets ? actualIndex * lineHeight : itemOffsets[actualIndex]
             const height = isUniform || !itemHeights ? lineHeight : itemHeights[actualIndex]
             const originalIndex = item.originalIndex
             const markColor = (markedLines || {})[originalIndex]
-            const isBookmarked = !!((bookmarkedLines || {})[originalIndex])
+            const isBookmarked = !!(bookmarkedLines || {})[originalIndex]
             const bookmarkData = (bookmarkedLines || {})[originalIndex]
             const isFlashing = targetFlashLine === originalIndex
 
@@ -723,11 +759,20 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
                 : 'Remove Bookmark (Pin)'
               : 'Bookmark Line (Pin)'
 
+            const isPayloadExpanded = !!(
+              expandedPayloadLines && expandedPayloadLines[originalIndex]
+            )
+            const detectedPayload =
+              isPayloadExpanded || item.text.includes('{') || item.text.includes('<')
+                ? detectPayload(item.text)
+                : null
+
             let className = 'log-line'
             if (markColor) className += ` marked-${markColor}`
             if (isBookmarked) className += ' is-bookmarked'
             if (isFlashing) className += ' flash-highlight'
             if (item.isContext) className += ' is-context-line'
+            if (isPayloadExpanded) className += ' has-expanded-payload'
 
             const lineStyle: React.CSSProperties = {
               position: 'absolute',
@@ -736,12 +781,9 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
               width: contentWidth,
               minWidth: '100%',
               height: `${height}px`,
-              lineHeight: `${lineHeight}px`,
               overflow: 'hidden',
-              whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
-              wordBreak: wordWrap ? 'break-all' : 'normal',
               display: 'flex',
-              alignItems: 'flex-start',
+              flexDirection: 'column',
               borderLeft: '4px solid transparent'
             }
 
@@ -760,7 +802,9 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
                 lineStyle.borderLeft = `4px solid ${config.border}`
               }
             } else if (item.isContext) {
-              lineStyle.backgroundColor = isDark ? 'rgba(168, 85, 247, 0.12)' : 'rgba(168, 85, 247, 0.06)'
+              lineStyle.backgroundColor = isDark
+                ? 'rgba(168, 85, 247, 0.12)'
+                : 'rgba(168, 85, 247, 0.06)'
               lineStyle.borderLeft = isDark ? '4px dashed #a855f7' : '4px dashed #9333ea'
               lineStyle.opacity = 0.9
             } else if (item.level === 'ERROR') {
@@ -780,113 +824,307 @@ function getCanvasContext(fontSize: number): CanvasRenderingContext2D | null {
                 data-timestamp={item.timestamp || ''}
                 data-level={item.level || 'OTHER'}
                 onContextMenu={(e) => onContextMenu(e, originalIndex, item.timestamp, item.text)}
+                onMouseEnter={() => onHoverLine?.(originalIndex, item.text)}
                 style={lineStyle}
               >
-                {showLineNumbers && (
-                  <span
-                    className="log-line-num"
-                    style={{
-                      userSelect: 'none',
-                      WebkitUserSelect: 'none',
-                      display: 'inline-block',
-                      minWidth: `${maxLineDigits}ch`,
-                      textAlign: 'right',
-                      marginRight: '8px',
-                      opacity: 0.45,
-                      fontSize: '0.9em',
-                      color: 'inherit',
-                      alignSelf: 'stretch'
-                    }}
-                  >
-                    {originalIndex + 1}
-                  </span>
-                )}
-                {item.isContext && (
-                  <span
-                    style={{
-                      display: 'inline-block',
-                      padding: '0 5px',
-                      marginRight: '6px',
-                      borderRadius: '3px',
-                      fontSize: '0.75em',
-                      fontWeight: 600,
-                      lineHeight: '1.4',
-                      backgroundColor: isDark ? 'rgba(168, 85, 247, 0.25)' : 'rgba(147, 51, 234, 0.15)',
-                      color: isDark ? '#c084fc' : '#7e22ce',
-                      border: isDark ? '1px solid rgba(168, 85, 247, 0.4)' : '1px solid rgba(147, 51, 234, 0.3)',
-                      userSelect: 'none',
-                      flexShrink: 0
-                    }}
-                  >
-                    Context
-                  </span>
-                )}
-                <span
-                  className={`log-bookmark-btn${isBookmarked ? ' active' : ''}`}
-                  title={bookmarkTitle}
-                  data-bookmark-index={originalIndex}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onToggleBookmark(originalIndex, item.text, item.timestamp)
-                  }}
+                {/* Main Log Line Content Row */}
+                <div
                   style={{
-                    cursor: 'pointer',
-                    userSelect: 'none',
-                    marginRight: '8px',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '20px',
-                    height: '20px',
-                    borderRadius: '4px',
-                    backgroundColor: isBookmarked ? '#faad14' : 'transparent',
-                    color: isBookmarked ? '#141414' : (isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)'),
-                    boxShadow: isBookmarked ? '0 0 8px rgba(250, 173, 20, 0.65)' : 'none',
-                    flexShrink: 0,
-                    marginTop: '2px'
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    width: '100%',
+                    lineHeight: `${lineHeight}px`,
+                    whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
+                    wordBreak: wordWrap ? 'break-all' : 'normal'
                   }}
                 >
-                  {isBookmarked ? (
-                    <PushpinFilled style={{ fontSize: '12px' }} />
-                  ) : (
-                    <PushpinOutlined style={{ fontSize: '12px' }} />
+                  {showLineNumbers && (
+                    <span
+                      className="log-line-num"
+                      style={{
+                        userSelect: 'none',
+                        WebkitUserSelect: 'none',
+                        display: 'inline-block',
+                        minWidth: `${maxLineDigits}ch`,
+                        textAlign: 'right',
+                        marginRight: '8px',
+                        opacity: 0.45,
+                        fontSize: '0.9em',
+                        color: 'inherit',
+                        alignSelf: 'stretch'
+                      }}
+                    >
+                      {originalIndex + 1}
+                    </span>
                   )}
-                </span>
-                {isBookmarked && bookmarkData?.name && (
+                  {item.isContext && (
+                    <span
+                      style={{
+                        display: 'inline-block',
+                        padding: '0 5px',
+                        marginRight: '6px',
+                        borderRadius: '3px',
+                        fontSize: '0.75em',
+                        fontWeight: 600,
+                        lineHeight: '1.4',
+                        backgroundColor: isDark
+                          ? 'rgba(168, 85, 247, 0.25)'
+                          : 'rgba(147, 51, 234, 0.15)',
+                        color: isDark ? '#c084fc' : '#7e22ce',
+                        border: isDark
+                          ? '1px solid rgba(168, 85, 247, 0.4)'
+                          : '1px solid rgba(147, 51, 234, 0.3)',
+                        userSelect: 'none',
+                        flexShrink: 0
+                      }}
+                    >
+                      Context
+                    </span>
+                  )}
                   <span
+                    className={`log-bookmark-btn${isBookmarked ? ' active' : ''}`}
+                    title={bookmarkTitle}
+                    data-bookmark-index={originalIndex}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onToggleBookmark(originalIndex, item.text, item.timestamp)
+                    }}
                     style={{
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      marginRight: '8px',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      backgroundColor: 'rgba(250, 173, 20, 0.15)',
-                      color: isDark ? '#fadb14' : '#d48806',
-                      border: '1px solid rgba(250, 173, 20, 0.4)',
-                      borderRadius: '3px',
-                      fontSize: '11px',
-                      padding: '0 5px',
-                      marginRight: '6px',
-                      lineHeight: '18px',
-                      height: '18px',
-                      fontWeight: 500,
-                      userSelect: 'none',
-                      flexShrink: 0
+                      justifyContent: 'center',
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '4px',
+                      backgroundColor: isBookmarked ? '#faad14' : 'transparent',
+                      color: isBookmarked
+                        ? '#141414'
+                        : isDark
+                          ? 'rgba(255, 255, 255, 0.3)'
+                          : 'rgba(0, 0, 0, 0.3)',
+                      boxShadow: isBookmarked ? '0 0 8px rgba(250, 173, 20, 0.65)' : 'none',
+                      flexShrink: 0,
+                      marginTop: '2px'
                     }}
-                    title={`Bookmark Label: ${bookmarkData.name}`}
                   >
-                    🏷️ {bookmarkData.name}
+                    {isBookmarked ? (
+                      <PushpinFilled style={{ fontSize: '12px' }} />
+                    ) : (
+                      <PushpinOutlined style={{ fontSize: '12px' }} />
+                    )}
                   </span>
+                  {isBookmarked && bookmarkData?.name && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(250, 173, 20, 0.15)',
+                        color: isDark ? '#fadb14' : '#d48806',
+                        border: '1px solid rgba(250, 173, 20, 0.4)',
+                        borderRadius: '3px',
+                        fontSize: '11px',
+                        padding: '0 5px',
+                        marginRight: '6px',
+                        lineHeight: '18px',
+                        height: '18px',
+                        fontWeight: 500,
+                        userSelect: 'none',
+                        flexShrink: 0
+                      }}
+                      title={`Bookmark Label: ${bookmarkData.name}`}
+                    >
+                      🏷️ {bookmarkData.name}
+                    </span>
+                  )}
+                  {renderLevelBadge(item.level)}
+                  {/* Inline Payload Badge */}
+                  {detectedPayload && (
+                    <span
+                      className="log-payload-badge"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onToggleExpandPayload?.(originalIndex)
+                      }}
+                      title={`Click to ${isPayloadExpanded ? 'collapse' : 'expand'} formatted ${detectedPayload.type.toUpperCase()}`}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '0 5px',
+                        marginRight: '6px',
+                        borderRadius: '3px',
+                        fontSize: '0.74em',
+                        fontWeight: 700,
+                        lineHeight: '1.4',
+                        cursor: 'pointer',
+                        backgroundColor:
+                          detectedPayload.type === 'json'
+                            ? isDark
+                              ? 'rgba(59, 130, 246, 0.22)'
+                              : '#eff6ff'
+                            : isDark
+                              ? 'rgba(249, 115, 22, 0.22)'
+                              : '#fff7ed',
+                        color:
+                          detectedPayload.type === 'json'
+                            ? isDark
+                              ? '#60a5fa'
+                              : '#2563eb'
+                            : isDark
+                              ? '#fb923c'
+                              : '#ea580c',
+                        border: `1px solid ${
+                          detectedPayload.type === 'json'
+                            ? isDark
+                              ? 'rgba(59, 130, 246, 0.45)'
+                              : '#bfdbfe'
+                            : isDark
+                              ? 'rgba(249, 115, 22, 0.45)'
+                              : '#fed7aa'
+                        }`,
+                        userSelect: 'none',
+                        WebkitUserSelect: 'none',
+                        flexShrink: 0,
+                        verticalAlign: 'middle',
+                        marginTop: 2
+                      }}
+                    >
+                      {detectedPayload.type === 'json' ? '{ } JSON' : '< > XML'}
+                    </span>
+                  )}
+                  <span
+                    className="log-text-content"
+                    dangerouslySetInnerHTML={{
+                      __html: renderHighlightedText(item.text, actualIndex)
+                    }}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      wordBreak: 'break-all'
+                    }}
+                  />
+                </div>
+
+                {/* Inline Formatted Payload Box */}
+                {isPayloadExpanded && detectedPayload && (
+                  <div
+                    className="inline-payload-box"
+                    onClick={(e) => e.stopPropagation()}
+                    onContextMenu={(e) => e.stopPropagation()}
+                    style={{
+                      margin: '4px 8px 6px 36px',
+                      borderRadius: '6px',
+                      border: `1px solid ${isDark ? '#30363d' : '#d0d7de'}`,
+                      backgroundColor: isDark ? '#161b22' : '#f6f8fa',
+                      boxShadow: isDark
+                        ? '0 4px 12px rgba(0, 0, 0, 0.5)'
+                        : '0 2px 8px rgba(0, 0, 0, 0.08)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      height: `${INLINE_PAYLOAD_HEIGHT - 12}px`,
+                      overflow: 'hidden',
+                      lineHeight: '1.4'
+                    }}
+                  >
+                    {/* Inline Header Toolbar */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '4px 10px',
+                        backgroundColor: isDark ? '#1f242c' : '#f1f5f9',
+                        borderBottom: `1px solid ${isDark ? '#30363d' : '#e2e8f0'}`,
+                        fontSize: '11px'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span
+                          style={{
+                            fontWeight: 700,
+                            color: detectedPayload.type === 'json' ? '#3b82f6' : '#f97316'
+                          }}
+                        >
+                          {detectedPayload.type.toUpperCase()} Payload
+                        </span>
+                        <span style={{ color: isDark ? '#8b949e' : '#64748b' }}>
+                          {detectedPayload.summary}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(detectedPayload.formatted)
+                            message.success('Formatted payload copied to clipboard')
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '11px',
+                            color: isDark ? '#93c5fd' : '#2563eb',
+                            padding: '2px 6px',
+                            borderRadius: 3
+                          }}
+                          title="Copy formatted text"
+                        >
+                          Copy
+                        </button>
+                        <button
+                          onClick={() => {
+                            onOpenPayloadDrawer?.(originalIndex, item.text)
+                          }}
+                          style={{
+                            background: isDark ? '#238636' : '#10b981',
+                            color: '#fff',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '11px',
+                            padding: '2px 8px',
+                            borderRadius: 3,
+                            fontWeight: 500
+                          }}
+                          title="Open in full-featured Side Drawer"
+                        >
+                          Open Drawer ↗
+                        </button>
+                        <button
+                          onClick={() => onToggleExpandPayload?.(originalIndex)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            color: isDark ? '#8b949e' : '#64748b',
+                            padding: '0 4px'
+                          }}
+                          title="Collapse"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Inline Preformatted Code Area */}
+                    <div
+                      style={{
+                        flex: 1,
+                        overflow: 'auto',
+                        padding: '8px 12px',
+                        fontFamily: '"Fira Code", "JetBrains Mono", monospace',
+                        fontSize: '11.5px',
+                        color: isDark ? '#c9d1d9' : '#24292f'
+                      }}
+                    >
+                      <pre style={{ margin: 0, whiteSpace: 'pre' }}>
+                        {detectedPayload.formatted}
+                      </pre>
+                    </div>
+                  </div>
                 )}
-                {renderLevelBadge(item.level)}
-                <span
-                  className="log-text-content"
-                  dangerouslySetInnerHTML={{
-                    __html: renderHighlightedText(item.text, actualIndex)
-                  }}
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    wordBreak: 'break-all'
-                  }}
-                />
               </div>
             )
           })}

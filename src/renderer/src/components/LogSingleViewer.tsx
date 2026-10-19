@@ -45,7 +45,8 @@ import {
   BranchesOutlined,
   CopyOutlined,
   ClearOutlined,
-  KeyOutlined
+  KeyOutlined,
+  AppstoreOutlined
 } from '@ant-design/icons'
 import dayjs, { Dayjs } from 'dayjs'
 import { useTranslation } from 'react-i18next'
@@ -56,29 +57,52 @@ import { SshConfig } from './RemoteLogModal'
 import { parseStackReference } from '../utils/stackTraceParser'
 import { KeywordHistoryInput } from './KeywordHistoryInput'
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal'
-import {
-  TimestampFormat,
-  TIMESTAMP_FORMATS,
-  detectTimestampFormat
-} from '../utils/logParser'
+import { TimestampFormat, TIMESTAMP_FORMATS, detectTimestampFormat } from '../utils/logParser'
 import { useLogFilterWorker } from '../hooks/useLogFilterWorker'
+import { detectPayload, DetectedPayload } from '../utils/payloadDetector'
+import { PayloadInspectorDrawer } from './PayloadInspectorDrawer'
 
 const { Text } = Typography
 
-
-
 const PRESET_COLORS = [
-  { nameKey: 'contextMenu.colorBlue', defaultName: 'Blue', value: 'blue', color: '#3b82f6', borderLeftColor: '#1d4ed8' },
-  { nameKey: 'contextMenu.colorRed', defaultName: 'Red', value: 'red', color: '#ef4444', borderLeftColor: '#b91c1c' },
-  { nameKey: 'contextMenu.colorGreen', defaultName: 'Green', value: 'green', color: '#10b981', borderLeftColor: '#047857' },
-  { nameKey: 'contextMenu.colorOrange', defaultName: 'Orange', value: 'orange', color: '#f97316', borderLeftColor: '#c2410c' },
-  { nameKey: 'contextMenu.colorPurple', defaultName: 'Purple', value: 'purple', color: '#8b5cf6', borderLeftColor: '#6d28d9' }
+  {
+    nameKey: 'contextMenu.colorBlue',
+    defaultName: 'Blue',
+    value: 'blue',
+    color: '#3b82f6',
+    borderLeftColor: '#1d4ed8'
+  },
+  {
+    nameKey: 'contextMenu.colorRed',
+    defaultName: 'Red',
+    value: 'red',
+    color: '#ef4444',
+    borderLeftColor: '#b91c1c'
+  },
+  {
+    nameKey: 'contextMenu.colorGreen',
+    defaultName: 'Green',
+    value: 'green',
+    color: '#10b981',
+    borderLeftColor: '#047857'
+  },
+  {
+    nameKey: 'contextMenu.colorOrange',
+    defaultName: 'Orange',
+    value: 'orange',
+    color: '#f97316',
+    borderLeftColor: '#c2410c'
+  },
+  {
+    nameKey: 'contextMenu.colorPurple',
+    defaultName: 'Purple',
+    value: 'purple',
+    color: '#8b5cf6',
+    borderLeftColor: '#6d28d9'
+  }
 ]
 
-const LEVEL_TOGGLE_CONFIG: Record<
-  LogLevel,
-  { bgSolid: string; borderSolid: string }
-> = {
+const LEVEL_TOGGLE_CONFIG: Record<LogLevel, { bgSolid: string; borderSolid: string }> = {
   ERROR: { bgSolid: '#ef4444', borderSolid: '#dc2626' },
   WARN: { bgSolid: '#f97316', borderSolid: '#ea580c' },
   INFO: { bgSolid: '#3b82f6', borderSolid: '#2563eb' },
@@ -93,8 +117,6 @@ const DEFAULT_LOG_LEVELS: Record<LogLevel, boolean> = {
   DEBUG: true,
   OTHER: true
 }
-
-
 
 export interface LogTabSession {
   id: string
@@ -226,6 +248,47 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
   // Keyboard Shortcuts Modal state
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false)
 
+  // JSON / XML Payload Inspector & Inline Expansion States
+  const [expandedPayloadLines, setExpandedPayloadLines] = useState<Record<number, boolean>>({})
+  const [payloadDrawerState, setPayloadDrawerState] = useState<{
+    open: boolean
+    payload: DetectedPayload | null
+    lineNumber?: number
+  }>({ open: false, payload: null })
+  const [lastHoveredLine, setLastHoveredLine] = useState<{
+    originalIndex: number
+    text: string
+  } | null>(null)
+  const lastHoveredLineRef = useRef<{ originalIndex: number; text: string } | null>(null)
+  lastHoveredLineRef.current = lastHoveredLine
+
+  const handleToggleExpandPayload = useCallback((originalIndex: number) => {
+    setExpandedPayloadLines((prev) => ({
+      ...prev,
+      [originalIndex]: !prev[originalIndex]
+    }))
+  }, [])
+
+  const handleOpenPayloadDrawer = useCallback(
+    (originalIndex: number, text: string) => {
+      const payload = detectPayload(text)
+      if (payload) {
+        setPayloadDrawerState({
+          open: true,
+          payload,
+          lineNumber: originalIndex
+        })
+      } else {
+        message.info(
+          t('payload.noPayloadDetected', {
+            defaultValue: 'No valid JSON or XML payload detected on this line'
+          })
+        )
+      }
+    },
+    [t]
+  )
+
   // Floating search box states (Ctrl+F / F3)
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -281,7 +344,13 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     const hasDeselectedLevel = Object.values(currentLevels).some((v) => !v)
     if (hasDeselectedLevel) count++
     return count
-  }, [session.includeKeywords, session.excludeKeywords, session.startTime, session.endTime, session.selectedLogLevels])
+  }, [
+    session.includeKeywords,
+    session.excludeKeywords,
+    session.startTime,
+    session.endTime,
+    session.selectedLogLevels
+  ])
 
   const handleClearAllFilters = useCallback(() => {
     onUpdateSession({
@@ -345,7 +414,10 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
       // 0. Ctrl+C: Copy active selection or fallback to highlighted word
       if (isCtrlOrCmd && keyLower === 'c' && !e.shiftKey && !e.altKey) {
         const target = e.target as HTMLElement
-        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        if (
+          target &&
+          (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+        ) {
           return
         }
         const selection = window.getSelection()
@@ -432,7 +504,11 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
         (e.key === '?' && !e.ctrlKey && !e.altKey && !e.metaKey)
       ) {
         const target = e.target as HTMLElement
-        if (e.key === '?' && target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        if (
+          e.key === '?' &&
+          target &&
+          (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
+        ) {
           return
         }
         e.preventDefault()
@@ -464,12 +540,29 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
         return
       }
 
-      // 9. Escape: Unfocus input, close search/modal, or clear text highlight
+      // 9. Alt + J: Format & Inspect JSON / XML Payload for hovered/selected line
+      if (e.altKey && (e.key === 'j' || e.key === 'J')) {
+        e.preventDefault()
+        const targetLine = lastHoveredLineRef.current
+        if (targetLine) {
+          handleOpenPayloadDrawer(targetLine.originalIndex, targetLine.text)
+        } else if (contextMenuRef.current) {
+          // context menu active
+        }
+        return
+      }
+
+      // 10. Escape: Unfocus input, close search/modal/drawer, or clear text highlight
       if (e.key === 'Escape') {
         const target = e.target as HTMLElement
         if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
           target.blur()
           e.preventDefault()
+          return
+        }
+        if (payloadDrawerState.open) {
+          e.preventDefault()
+          setPayloadDrawerState((prev) => ({ ...prev, open: false }))
           return
         }
         if (visible) {
@@ -505,7 +598,10 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
 
     const handleCopy = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      if (
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+      ) {
         return
       }
       const selection = window.getSelection()
@@ -587,7 +683,6 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     }
   }
 
-
   const [contextModalLine, setContextModalLine] = useState<{
     originalIndex: number
     text: string
@@ -646,7 +741,11 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
 
   // Sync scroll from external prop if provided
   useEffect(() => {
-    if (scrollTopPercentage !== undefined && scrollTopPercentage !== null && logContainerRef.current) {
+    if (
+      scrollTopPercentage !== undefined &&
+      scrollTopPercentage !== null &&
+      logContainerRef.current
+    ) {
       const container = logContainerRef.current
       const maxScroll = container.scrollHeight - container.clientHeight
       if (maxScroll <= 0) return
@@ -784,8 +883,6 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
     return () => container.removeEventListener('wheel', handleWheel)
   }, [session.fontSize, onUpdateSession])
 
-
-
   // Reset attached-to-bottom state when session changes
   useEffect(() => {
     if (session.tailMode) {
@@ -794,23 +891,24 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
   }, [session.id, session.tailMode])
 
   // Auto-scroll to bottom when tailMode is enabled, lines update, and viewport is attached to bottom
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!session.tailMode || !logContainerRef.current || filteredLines.length === 0) {
       return
     }
     if (!isAtBottomRef.current) {
       return
     }
-    const timer = setTimeout(() => {
-      if (logContainerRef.current) {
-        isProgrammaticScrollRef.current = true
-        logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
-        setTimeout(() => {
-          isProgrammaticScrollRef.current = false
-        }, 100)
+    const container = logContainerRef.current
+    isProgrammaticScrollRef.current = true
+    container.scrollTop = container.scrollHeight
+
+    const rafId = requestAnimationFrame(() => {
+      if (container) {
+        container.scrollTop = container.scrollHeight
       }
-    }, 50)
-    return () => clearTimeout(timer)
+      isProgrammaticScrollRef.current = false
+    })
+    return () => cancelAnimationFrame(rafId)
   }, [filteredLines, session.tailMode, session.id])
 
   // Toggle bookmark handler
@@ -897,9 +995,19 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
         key: filePath,
         onClick: () => onSelectRecentFile(filePath),
         label: (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, maxWidth: 360 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              maxWidth: 360
+            }}
+          >
             <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              <div style={{ fontWeight: isActive ? 'bold' : 'normal', fontSize: 13 }}>{fileName}</div>
+              <div style={{ fontWeight: isActive ? 'bold' : 'normal', fontSize: 13 }}>
+                {fileName}
+              </div>
               <div style={{ fontSize: 11, color: isDark ? '#94a3b8' : '#64748b' }}>{filePath}</div>
             </div>
             {isActive && <CheckOutlined style={{ color: '#3b82f6', fontSize: 12 }} />}
@@ -1074,7 +1182,10 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
           }}
         >
           <Space>
-            <Tag color={paneLabel === 'Pane A' ? 'blue' : 'purple'} style={{ margin: 0, fontWeight: 600 }}>
+            <Tag
+              color={paneLabel === 'Pane A' ? 'blue' : 'purple'}
+              style={{ margin: 0, fontWeight: 600 }}
+            >
               {paneLabel}
             </Tag>
             <Text style={{ fontSize: 12, fontWeight: 600, color: isDark ? '#e0e0e0' : '#1f2937' }}>
@@ -1140,7 +1251,11 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
           </Button>
 
           {session.filePath && (
-            <Text style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }} ellipsis title={session.filePath}>
+            <Text
+              style={{ fontSize: 12, color: isDark ? '#94a3b8' : '#64748b' }}
+              ellipsis
+              title={session.filePath}
+            >
               {session.filePath}
             </Text>
           )}
@@ -1228,7 +1343,12 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
         }}
       >
         <div
-          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            cursor: 'pointer'
+          }}
           onDoubleClick={() => setIsCollapsed(!isCollapsed)}
         >
           <Space align="center" size={8}>
@@ -1282,9 +1402,22 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             {/* Include Keywords */}
             <Col xs={24} sm={12}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    height: 20
+                  }}
+                >
                   <Space size={4} align="center">
-                    <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: isDark ? '#94a3b8' : '#64748b'
+                      }}
+                    >
                       {t('filter.includeKeywords')}
                     </Text>
                     <kbd
@@ -1293,7 +1426,9 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                         fontFamily: 'monospace',
                         padding: '0 4px',
                         borderRadius: 3,
-                        border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.15)',
+                        border: isDark
+                          ? '1px solid rgba(255,255,255,0.15)'
+                          : '1px solid rgba(0,0,0,0.15)',
                         color: isDark ? '#38bdf8' : '#0284c7',
                         background: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(2, 132, 199, 0.08)'
                       }}
@@ -1313,8 +1448,12 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                           fontSize: 11,
                           fontWeight: session.isIncludeCaseSensitive ? 600 : 400,
                           color: session.isIncludeCaseSensitive
-                            ? (isDark ? '#38bdf8' : '#0284c7')
-                            : (isDark ? '#64748b' : '#94a3b8')
+                            ? isDark
+                              ? '#38bdf8'
+                              : '#0284c7'
+                            : isDark
+                              ? '#64748b'
+                              : '#94a3b8'
                         }}
                       >
                         {t('filter.caseSensitive')}
@@ -1339,16 +1478,30 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             {/* Time Range Filter */}
             <Col xs={24} sm={12}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
-                  <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    height: 20
+                  }}
+                >
+                  <Text
+                    style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}
+                  >
                     {t('filter.timeRange')}
                   </Text>
-                  {(session.startTime || session.endTime) ? (
+                  {session.startTime || session.endTime ? (
                     <Button
                       size="small"
                       type="link"
                       onClick={() => onUpdateSession({ startTime: null, endTime: null })}
-                      style={{ fontSize: 11, padding: 0, height: 20, color: isDark ? '#38bdf8' : '#0284c7' }}
+                      style={{
+                        fontSize: 11,
+                        padding: 0,
+                        height: 20,
+                        color: isDark ? '#38bdf8' : '#0284c7'
+                      }}
                     >
                       {t('filter.resetTime')}
                     </Button>
@@ -1415,9 +1568,22 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             {/* Exclude Keywords */}
             <Col xs={24} sm={12}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 20 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    height: 20
+                  }}
+                >
                   <Space size={4} align="center">
-                    <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: isDark ? '#94a3b8' : '#64748b'
+                      }}
+                    >
                       {t('filter.excludeKeywords')}
                     </Text>
                     <kbd
@@ -1426,7 +1592,9 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                         fontFamily: 'monospace',
                         padding: '0 4px',
                         borderRadius: 3,
-                        border: isDark ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(0,0,0,0.15)',
+                        border: isDark
+                          ? '1px solid rgba(255,255,255,0.15)'
+                          : '1px solid rgba(0,0,0,0.15)',
                         color: isDark ? '#38bdf8' : '#0284c7',
                         background: isDark ? 'rgba(56, 189, 248, 0.1)' : 'rgba(2, 132, 199, 0.08)'
                       }}
@@ -1446,8 +1614,12 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                           fontSize: 11,
                           fontWeight: session.isExcludeCaseSensitive ? 600 : 400,
                           color: session.isExcludeCaseSensitive
-                            ? (isDark ? '#38bdf8' : '#0284c7')
-                            : (isDark ? '#64748b' : '#94a3b8')
+                            ? isDark
+                              ? '#38bdf8'
+                              : '#0284c7'
+                            : isDark
+                              ? '#64748b'
+                              : '#94a3b8'
                         }}
                       >
                         {t('filter.caseSensitive')}
@@ -1473,23 +1645,36 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             <Col xs={24} sm={12}>
               {(() => {
                 const currentLogLevels = session.selectedLogLevels || DEFAULT_LOG_LEVELS
-                const isAllSelected = (['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]).every(
-                  (lvl) => currentLogLevels[lvl]
-                )
+                const isAllSelected = (
+                  ['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]
+                ).every((lvl) => currentLogLevels[lvl])
                 const isErrorsWarnsSelected =
                   !!currentLogLevels.ERROR &&
                   !!currentLogLevels.WARN &&
                   !currentLogLevels.INFO &&
                   !currentLogLevels.DEBUG &&
                   !currentLogLevels.OTHER
-                const isNoneSelected = (['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]).every(
-                  (lvl) => !currentLogLevels[lvl]
-                )
+                const isNoneSelected = (
+                  ['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]
+                ).every((lvl) => !currentLogLevels[lvl])
 
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: 22 }}>
-                      <Text style={{ fontSize: 11, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        height: 22
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: isDark ? '#94a3b8' : '#64748b'
+                        }}
+                      >
                         {t('filter.logLevels')}
                       </Text>
                       <div
@@ -1498,7 +1683,9 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                           alignItems: 'center',
                           padding: '2px 3px',
                           borderRadius: 6,
-                          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                          backgroundColor: isDark
+                            ? 'rgba(255, 255, 255, 0.04)'
+                            : 'rgba(0, 0, 0, 0.03)',
                           border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.12)'}`,
                           gap: 3
                         }}
@@ -1507,7 +1694,13 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                           type="button"
                           onClick={() =>
                             onUpdateSession({
-                              selectedLogLevels: { ERROR: true, WARN: true, INFO: true, DEBUG: true, OTHER: true }
+                              selectedLogLevels: {
+                                ERROR: true,
+                                WARN: true,
+                                INFO: true,
+                                DEBUG: true,
+                                OTHER: true
+                              }
                             })
                           }
                           style={{
@@ -1523,13 +1716,23 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                             lineHeight: '14px',
                             transition: 'all 0.15s ease',
                             color: isAllSelected
-                              ? isDark ? '#60a5fa' : '#1d4ed8'
-                              : isDark ? '#cbd5e1' : '#64748b',
+                              ? isDark
+                                ? '#60a5fa'
+                                : '#1d4ed8'
+                              : isDark
+                                ? '#cbd5e1'
+                                : '#64748b',
                             backgroundColor: isAllSelected
-                              ? isDark ? 'rgba(59, 130, 246, 0.22)' : '#eff6ff'
-                              : isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)',
+                              ? isDark
+                                ? 'rgba(59, 130, 246, 0.22)'
+                                : '#eff6ff'
+                              : isDark
+                                ? 'rgba(255, 255, 255, 0.04)'
+                                : 'rgba(255, 255, 255, 0.8)',
                             boxShadow: isAllSelected
-                              ? isDark ? '0 0 6px rgba(59, 130, 246, 0.35)' : '0 1px 2px rgba(37, 99, 235, 0.15)'
+                              ? isDark
+                                ? '0 0 6px rgba(59, 130, 246, 0.35)'
+                                : '0 1px 2px rgba(37, 99, 235, 0.15)'
                               : 'none'
                           }}
                         >
@@ -1539,7 +1742,13 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                           type="button"
                           onClick={() =>
                             onUpdateSession({
-                              selectedLogLevels: { ERROR: true, WARN: true, INFO: false, DEBUG: false, OTHER: false }
+                              selectedLogLevels: {
+                                ERROR: true,
+                                WARN: true,
+                                INFO: false,
+                                DEBUG: false,
+                                OTHER: false
+                              }
                             })
                           }
                           style={{
@@ -1555,13 +1764,23 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                             lineHeight: '14px',
                             transition: 'all 0.15s ease',
                             color: isErrorsWarnsSelected
-                              ? isDark ? '#fca5a5' : '#b91c1c'
-                              : isDark ? '#cbd5e1' : '#64748b',
+                              ? isDark
+                                ? '#fca5a5'
+                                : '#b91c1c'
+                              : isDark
+                                ? '#cbd5e1'
+                                : '#64748b',
                             backgroundColor: isErrorsWarnsSelected
-                              ? isDark ? 'rgba(239, 68, 68, 0.22)' : '#fef2f2'
-                              : isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)',
+                              ? isDark
+                                ? 'rgba(239, 68, 68, 0.22)'
+                                : '#fef2f2'
+                              : isDark
+                                ? 'rgba(255, 255, 255, 0.04)'
+                                : 'rgba(255, 255, 255, 0.8)',
                             boxShadow: isErrorsWarnsSelected
-                              ? isDark ? '0 0 6px rgba(239, 68, 68, 0.35)' : '0 1px 2px rgba(220, 38, 26, 0.15)'
+                              ? isDark
+                                ? '0 0 6px rgba(239, 68, 68, 0.35)'
+                                : '0 1px 2px rgba(220, 38, 26, 0.15)'
                               : 'none'
                           }}
                         >
@@ -1571,7 +1790,13 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                           type="button"
                           onClick={() =>
                             onUpdateSession({
-                              selectedLogLevels: { ERROR: false, WARN: false, INFO: false, DEBUG: false, OTHER: false }
+                              selectedLogLevels: {
+                                ERROR: false,
+                                WARN: false,
+                                INFO: false,
+                                DEBUG: false,
+                                OTHER: false
+                              }
                             })
                           }
                           style={{
@@ -1587,13 +1812,23 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                             lineHeight: '14px',
                             transition: 'all 0.15s ease',
                             color: isNoneSelected
-                              ? isDark ? '#ffffff' : '#0f172a'
-                              : isDark ? '#cbd5e1' : '#64748b',
+                              ? isDark
+                                ? '#ffffff'
+                                : '#0f172a'
+                              : isDark
+                                ? '#cbd5e1'
+                                : '#64748b',
                             backgroundColor: isNoneSelected
-                              ? isDark ? 'rgba(255, 255, 255, 0.16)' : '#f1f5f9'
-                              : isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)',
+                              ? isDark
+                                ? 'rgba(255, 255, 255, 0.16)'
+                                : '#f1f5f9'
+                              : isDark
+                                ? 'rgba(255, 255, 255, 0.04)'
+                                : 'rgba(255, 255, 255, 0.8)',
                             boxShadow: isNoneSelected
-                              ? isDark ? '0 1px 4px rgba(0, 0, 0, 0.4)' : '0 1px 2px rgba(0, 0, 0, 0.1)'
+                              ? isDark
+                                ? '0 1px 4px rgba(0, 0, 0, 0.4)'
+                                : '0 1px 2px rgba(0, 0, 0, 0.1)'
                               : 'none'
                           }}
                         >
@@ -1601,52 +1836,60 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                         </button>
                       </div>
                     </div>
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', minHeight: 24 }}>
-                  {(['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]).map((lvl) => {
-                    const currentLogLevels = session.selectedLogLevels || DEFAULT_LOG_LEVELS
-                    const isSelected = !!currentLogLevels[lvl]
-                    const cfg = LEVEL_TOGGLE_CONFIG[lvl]
-                    return (
-                      <Button
-                        key={lvl}
-                        size="small"
-                        icon={isSelected ? <CheckOutlined style={{ fontSize: 10 }} /> : null}
-                        onClick={() =>
-                          onUpdateSession({
-                            selectedLogLevels: { ...currentLogLevels, [lvl]: !isSelected }
-                          })
-                        }
-                        style={{
-                          fontSize: 10,
-                          height: 24,
-                          padding: '0 7px',
-                          borderRadius: 12,
-                          fontWeight: isSelected ? 600 : 400,
-                          color: isSelected
-                            ? '#ffffff'
-                            : isDark ? '#94a3b8' : '#64748b',
-                          backgroundColor: isSelected
-                            ? cfg.bgSolid
-                            : isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
-                          borderColor: isSelected
-                            ? cfg.borderSolid
-                            : isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.12)',
-                          boxShadow: isSelected
-                            ? `0 2px 5px ${cfg.bgSolid}33`
-                            : 'none',
-                          opacity: isSelected ? 1 : 0.55,
-                          transition: 'all 0.15s ease-in-out'
-                        }}
-                      >
-                        {lvl} ({levelCounts[lvl] || 0})
-                      </Button>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })()}
-        </Col>
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: 4,
+                        flexWrap: 'wrap',
+                        alignItems: 'center',
+                        minHeight: 24
+                      }}
+                    >
+                      {(['ERROR', 'WARN', 'INFO', 'DEBUG', 'OTHER'] as LogLevel[]).map((lvl) => {
+                        const currentLogLevels = session.selectedLogLevels || DEFAULT_LOG_LEVELS
+                        const isSelected = !!currentLogLevels[lvl]
+                        const cfg = LEVEL_TOGGLE_CONFIG[lvl]
+                        return (
+                          <Button
+                            key={lvl}
+                            size="small"
+                            icon={isSelected ? <CheckOutlined style={{ fontSize: 10 }} /> : null}
+                            onClick={() =>
+                              onUpdateSession({
+                                selectedLogLevels: { ...currentLogLevels, [lvl]: !isSelected }
+                              })
+                            }
+                            style={{
+                              fontSize: 10,
+                              height: 24,
+                              padding: '0 7px',
+                              borderRadius: 12,
+                              fontWeight: isSelected ? 600 : 400,
+                              color: isSelected ? '#ffffff' : isDark ? '#94a3b8' : '#64748b',
+                              backgroundColor: isSelected
+                                ? cfg.bgSolid
+                                : isDark
+                                  ? 'rgba(255, 255, 255, 0.04)'
+                                  : 'rgba(0, 0, 0, 0.03)',
+                              borderColor: isSelected
+                                ? cfg.borderSolid
+                                : isDark
+                                  ? 'rgba(255, 255, 255, 0.12)'
+                                  : 'rgba(0, 0, 0, 0.12)',
+                              boxShadow: isSelected ? `0 2px 5px ${cfg.bgSolid}33` : 'none',
+                              opacity: isSelected ? 1 : 0.55,
+                              transition: 'all 0.15s ease-in-out'
+                            }}
+                          >
+                            {lvl} ({levelCounts[lvl] || 0})
+                          </Button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })()}
+            </Col>
           </Row>
         )}
       </div>
@@ -1683,6 +1926,10 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
           onScroll={handleScroll}
           containerRef={logContainerRef}
           isDark={isDark}
+          expandedPayloadLines={expandedPayloadLines}
+          onToggleExpandPayload={handleToggleExpandPayload}
+          onOpenPayloadDrawer={handleOpenPayloadDrawer}
+          onHoverLine={(idx, text) => setLastHoveredLine({ originalIndex: idx, text })}
         />
 
         {/* Floating Search Box (Ctrl+F / F3) */}
@@ -1694,10 +1941,14 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
               right: 20,
               zIndex: 1000,
               background: isDark ? 'rgba(30, 30, 35, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-              border: isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(0, 0, 0, 0.15)',
+              border: isDark
+                ? '1px solid rgba(255, 255, 255, 0.15)'
+                : '1px solid rgba(0, 0, 0, 0.15)',
               borderRadius: 6,
               padding: '6px 12px',
-              boxShadow: isDark ? '0 10px 30px rgba(0, 0, 0, 0.5)' : '0 10px 30px rgba(0, 0, 0, 0.1)',
+              boxShadow: isDark
+                ? '0 10px 30px rgba(0, 0, 0, 0.5)'
+                : '0 10px 30px rgba(0, 0, 0, 0.1)',
               display: 'flex',
               alignItems: 'center',
               gap: 6,
@@ -1776,7 +2027,14 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
       {/* Bookmarks Drawer */}
       <Drawer
         title={
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginRight: 8 }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginRight: 8
+            }}
+          >
             <span>{t('bookmarks.title')}</span>
             {Object.keys(session.bookmarkedLines || {}).length > 0 && (
               <Popconfirm
@@ -1833,9 +2091,18 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                       setTimeout(() => setTargetFlashLine(null), 2000)
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: 6
+                      }}
+                    >
                       <Space size={6} style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                        <Tag color="orange" style={{ margin: 0 }}>#{bm.originalIndex + 1}</Tag>
+                        <Tag color="orange" style={{ margin: 0 }}>
+                          #{bm.originalIndex + 1}
+                        </Tag>
                         {bm.name ? (
                           <Tag
                             color="blue"
@@ -1862,7 +2129,12 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                             type="dashed"
                             size="small"
                             icon={<EditOutlined style={{ fontSize: 11 }} />}
-                            style={{ fontSize: 11, height: 22, padding: '0 6px', color: isDark ? '#8c8c8c' : '#595959' }}
+                            style={{
+                              fontSize: 11,
+                              height: 22,
+                              padding: '0 6px',
+                              color: isDark ? '#8c8c8c' : '#595959'
+                            }}
                             onClick={(e) => {
                               e.stopPropagation()
                               setRenameTargetIndex(bm.originalIndex)
@@ -1905,7 +2177,11 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                       </Space>
                     </div>
 
-                    <Text style={{ fontSize: 12, color: isDark ? '#bfbfbf' : '#434343' }} ellipsis title={bm.text}>
+                    <Text
+                      style={{ fontSize: 12, color: isDark ? '#bfbfbf' : '#434343' }}
+                      ellipsis
+                      title={bm.text}
+                    >
                       {bm.text}
                     </Text>
                   </div>
@@ -2153,7 +2429,8 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
               }}
             >
               {PRESET_COLORS.map((color) => {
-                const isCurrentColor = session.markedLines[contextMenu.originalIndex] === color.value
+                const isCurrentColor =
+                  session.markedLines[contextMenu.originalIndex] === color.value
                 return (
                   <div
                     key={color.value}
@@ -2329,6 +2606,42 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
               </>
             )
           })()}
+
+          {/* Format JSON / XML Payload */}
+          {(() => {
+            const payload = detectPayload(contextMenu.lineText)
+            if (!payload) return null
+            return (
+              <>
+                <div
+                  style={{
+                    height: 1,
+                    background: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)',
+                    margin: '4px 0'
+                  }}
+                />
+                <div
+                  className="menu-item"
+                  onClick={() => {
+                    handleOpenPayloadDrawer(contextMenu.originalIndex, contextMenu.lineText)
+                    setContextMenu(null)
+                  }}
+                >
+                  <Space size={6}>
+                    <AppstoreOutlined
+                      style={{ color: payload.type === 'json' ? '#3b82f6' : '#f97316' }}
+                    />
+                    <span>
+                      {t('contextMenu.formatPayload', {
+                        defaultValue: 'Format {{type}} Payload',
+                        type: payload.type.toUpperCase()
+                      })}
+                    </span>
+                  </Space>
+                </div>
+              </>
+            )
+          })()}
         </div>
       )}
 
@@ -2336,7 +2649,9 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
       <div
         style={{
           background: isDark ? '#0f0f11' : '#f1f5f9',
-          borderTop: isDark ? '1px solid rgba(255, 255, 255, 0.06)' : '1px solid rgba(0, 0, 0, 0.08)',
+          borderTop: isDark
+            ? '1px solid rgba(255, 255, 255, 0.06)'
+            : '1px solid rgba(0, 0, 0, 0.08)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
@@ -2384,7 +2699,18 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
                 }
               }}
             />
-            <span style={{ fontSize: 11, color: session.tailMode ? (isDark ? '#e4e4e7' : '#1e293b') : (isDark ? '#71717a' : '#64748b') }}>
+            <span
+              style={{
+                fontSize: 11,
+                color: session.tailMode
+                  ? isDark
+                    ? '#e4e4e7'
+                    : '#1e293b'
+                  : isDark
+                    ? '#71717a'
+                    : '#64748b'
+              }}
+            >
               {t('statusBar.tailMode')}
             </span>
           </Space>
@@ -2394,7 +2720,18 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
               checked={session.wordWrap}
               onChange={(checked) => onUpdateSession({ wordWrap: checked })}
             />
-            <span style={{ fontSize: 11, color: session.wordWrap ? (isDark ? '#e4e4e7' : '#1e293b') : (isDark ? '#71717a' : '#64748b') }}>
+            <span
+              style={{
+                fontSize: 11,
+                color: session.wordWrap
+                  ? isDark
+                    ? '#e4e4e7'
+                    : '#1e293b'
+                  : isDark
+                    ? '#71717a'
+                    : '#64748b'
+              }}
+            >
               {t('statusBar.wordWrap')}
             </span>
           </Space>
@@ -2406,160 +2743,201 @@ export const LogSingleViewer: React.FC<LogSingleViewerProps> = ({
             <Radio.Button value="dark">{t('statusBar.darkTheme')}</Radio.Button>
             <Radio.Button value="light">{t('statusBar.lightTheme')}</Radio.Button>
           </Radio.Group>
-          <Button type="link" size="small" onClick={onCheckForUpdates} style={{ padding: 0, fontSize: 11 }}>
+          <Button
+            type="link"
+            size="small"
+            onClick={onCheckForUpdates}
+            style={{ padding: 0, fontSize: 11 }}
+          >
             {t('statusBar.checkForUpdates')}
           </Button>
         </Space>
       </div>
 
       {/* Context View Modal */}
-      {contextModalLine !== null && (() => {
-        const rawLines = session.content ? session.content.split(/\r?\n/) : []
-        const startLine = Math.max(0, contextModalLine.originalIndex - contextModalRange)
-        const endLine = Math.min(rawLines.length - 1, contextModalLine.originalIndex + contextModalRange)
-        const displayedLines = rawLines.slice(startLine, endLine + 1)
-        const maxDigits = Math.max(String(endLine + 1).length, 3)
+      {contextModalLine !== null &&
+        (() => {
+          const rawLines = session.content ? session.content.split(/\r?\n/) : []
+          const startLine = Math.max(0, contextModalLine.originalIndex - contextModalRange)
+          const endLine = Math.min(
+            rawLines.length - 1,
+            contextModalLine.originalIndex + contextModalRange
+          )
+          const displayedLines = rawLines.slice(startLine, endLine + 1)
+          const maxDigits = Math.max(String(endLine + 1).length, 3)
 
-        const isInlineExpanded = Boolean(expandedContexts[contextModalLine.originalIndex])
+          const isInlineExpanded = Boolean(expandedContexts[contextModalLine.originalIndex])
 
-        const handleCopyModalContext = () => {
-          const textToCopy = displayedLines.join('\n')
-          navigator.clipboard.writeText(textToCopy)
-          message.success(t('contextModal.copySuccess'))
-        }
+          const handleCopyModalContext = () => {
+            const textToCopy = displayedLines.join('\n')
+            navigator.clipboard.writeText(textToCopy)
+            message.success(t('contextModal.copySuccess'))
+          }
 
-        return (
-          <Modal
-            title={
-              <Space>
-                <BranchesOutlined style={{ color: '#a855f7' }} />
-                <span>{t('contextModal.title', { line: contextModalLine.originalIndex + 1 })}</span>
-              </Space>
-            }
-            open={true}
-            onCancel={() => setContextModalLine(null)}
-            width={900}
-            footer={[
-              <Button
-                key="copy"
-                icon={<CopyOutlined />}
-                onClick={handleCopyModalContext}
-              >
-                {t('contextModal.copyContext')}
-              </Button>,
-              <Button
-                key="inline"
-                type={isInlineExpanded ? 'default' : 'primary'}
-                danger={isInlineExpanded}
-                onClick={() => {
-                  if (isInlineExpanded) {
-                    handleCollapseContextInline(contextModalLine.originalIndex)
-                  } else {
-                    handleExpandContextInline(contextModalLine.originalIndex, contextModalRange)
-                  }
+          return (
+            <Modal
+              title={
+                <Space>
+                  <BranchesOutlined style={{ color: '#a855f7' }} />
+                  <span>
+                    {t('contextModal.title', { line: contextModalLine.originalIndex + 1 })}
+                  </span>
+                </Space>
+              }
+              open={true}
+              onCancel={() => setContextModalLine(null)}
+              width={900}
+              footer={[
+                <Button key="copy" icon={<CopyOutlined />} onClick={handleCopyModalContext}>
+                  {t('contextModal.copyContext')}
+                </Button>,
+                <Button
+                  key="inline"
+                  type={isInlineExpanded ? 'default' : 'primary'}
+                  danger={isInlineExpanded}
+                  onClick={() => {
+                    if (isInlineExpanded) {
+                      handleCollapseContextInline(contextModalLine.originalIndex)
+                    } else {
+                      handleExpandContextInline(contextModalLine.originalIndex, contextModalRange)
+                    }
+                  }}
+                >
+                  {isInlineExpanded
+                    ? t('contextModal.collapseInline')
+                    : t('contextModal.expandInline')}
+                </Button>,
+                <Button key="close" onClick={() => setContextModalLine(null)}>
+                  Close
+                </Button>
+              ]}
+            >
+              <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontWeight: 500, fontSize: 13 }}>
+                  {t('contextModal.rangeLabel')}
+                </span>
+                <Radio.Group
+                  value={contextModalRange}
+                  onChange={(e) => setContextModalRange(e.target.value)}
+                  size="small"
+                >
+                  <Radio.Button value={5}>±5</Radio.Button>
+                  <Radio.Button value={10}>±10</Radio.Button>
+                  <Radio.Button value={20}>±20</Radio.Button>
+                  <Radio.Button value={50}>±50</Radio.Button>
+                </Radio.Group>
+                <InputNumber
+                  min={1}
+                  max={200}
+                  value={contextModalRange}
+                  onChange={(val) => val && setContextModalRange(val)}
+                  size="small"
+                  style={{ width: 80 }}
+                />
+              </div>
+
+              <div
+                style={{
+                  fontFamily: 'Consolas, Monaco, "Courier New", monospace',
+                  fontSize: session.fontSize || 13,
+                  lineHeight: '1.6',
+                  maxHeight: '480px',
+                  overflowY: 'auto',
+                  backgroundColor: isDark ? '#0f0f11' : '#f8fafc',
+                  border: isDark
+                    ? '1px solid rgba(255, 255, 255, 0.1)'
+                    : '1px solid rgba(0, 0, 0, 0.1)',
+                  borderRadius: '6px',
+                  padding: '8px 4px'
                 }}
               >
-                {isInlineExpanded
-                  ? t('contextModal.collapseInline')
-                  : t('contextModal.expandInline')}
-              </Button>,
-              <Button key="close" onClick={() => setContextModalLine(null)}>
-                Close
-              </Button>
-            ]}
-          >
-            <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontWeight: 500, fontSize: 13 }}>{t('contextModal.rangeLabel')}</span>
-              <Radio.Group
-                value={contextModalRange}
-                onChange={(e) => setContextModalRange(e.target.value)}
-                size="small"
-              >
-                <Radio.Button value={5}>±5</Radio.Button>
-                <Radio.Button value={10}>±10</Radio.Button>
-                <Radio.Button value={20}>±20</Radio.Button>
-                <Radio.Button value={50}>±50</Radio.Button>
-              </Radio.Group>
-              <InputNumber
-                min={1}
-                max={200}
-                value={contextModalRange}
-                onChange={(val) => val && setContextModalRange(val)}
-                size="small"
-                style={{ width: 80 }}
-              />
-            </div>
-
-            <div
-              style={{
-                fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-                fontSize: session.fontSize || 13,
-                lineHeight: '1.6',
-                maxHeight: '480px',
-                overflowY: 'auto',
-                backgroundColor: isDark ? '#0f0f11' : '#f8fafc',
-                border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
-                borderRadius: '6px',
-                padding: '8px 4px'
-              }}
-            >
-              {displayedLines.map((lineText, idx) => {
-                const currentOriginalIndex = startLine + idx
-                const isTarget = currentOriginalIndex === contextModalLine.originalIndex
-                return (
-                  <div
-                    key={currentOriginalIndex}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      backgroundColor: isTarget
-                        ? (isDark ? 'rgba(234, 179, 8, 0.25)' : 'rgba(254, 240, 138, 0.75)')
-                        : 'transparent',
-                      borderLeft: isTarget
-                        ? '4px solid #eab308'
-                        : '4px solid transparent',
-                      padding: '2px 8px',
-                      borderRadius: '2px'
-                    }}
-                  >
-                    <span
+                {displayedLines.map((lineText, idx) => {
+                  const currentOriginalIndex = startLine + idx
+                  const isTarget = currentOriginalIndex === contextModalLine.originalIndex
+                  return (
+                    <div
+                      key={currentOriginalIndex}
                       style={{
-                        display: 'inline-block',
-                        minWidth: `${maxDigits}ch`,
-                        textAlign: 'right',
-                        marginRight: '12px',
-                        opacity: isTarget ? 0.95 : 0.45,
-                        fontWeight: isTarget ? 700 : 400,
-                        userSelect: 'none',
-                        color: isTarget ? '#eab308' : 'inherit'
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        backgroundColor: isTarget
+                          ? isDark
+                            ? 'rgba(234, 179, 8, 0.25)'
+                            : 'rgba(254, 240, 138, 0.75)'
+                          : 'transparent',
+                        borderLeft: isTarget ? '4px solid #eab308' : '4px solid transparent',
+                        padding: '2px 8px',
+                        borderRadius: '2px'
                       }}
                     >
-                      {currentOriginalIndex + 1}
-                    </span>
-                    {isTarget ? (
-                      <Tag color="gold" style={{ fontSize: 10, margin: '2px 6px 0 0', flexShrink: 0, fontWeight: 700 }}>
-                        {t('contextModal.targetLineTag')}
-                      </Tag>
-                    ) : (
-                      <Tag style={{ fontSize: 10, margin: '2px 6px 0 0', opacity: 0.65, flexShrink: 0 }}>
-                        {t('contextModal.contextLineTag')}
-                      </Tag>
-                    )}
-                    <span style={{ whiteSpace: session.wordWrap ? 'pre-wrap' : 'pre', wordBreak: session.wordWrap ? 'break-all' : 'normal', flex: 1 }}>
-                      {lineText}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </Modal>
-        )
-      })()}
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          minWidth: `${maxDigits}ch`,
+                          textAlign: 'right',
+                          marginRight: '12px',
+                          opacity: isTarget ? 0.95 : 0.45,
+                          fontWeight: isTarget ? 700 : 400,
+                          userSelect: 'none',
+                          color: isTarget ? '#eab308' : 'inherit'
+                        }}
+                      >
+                        {currentOriginalIndex + 1}
+                      </span>
+                      {isTarget ? (
+                        <Tag
+                          color="gold"
+                          style={{
+                            fontSize: 10,
+                            margin: '2px 6px 0 0',
+                            flexShrink: 0,
+                            fontWeight: 700
+                          }}
+                        >
+                          {t('contextModal.targetLineTag')}
+                        </Tag>
+                      ) : (
+                        <Tag
+                          style={{
+                            fontSize: 10,
+                            margin: '2px 6px 0 0',
+                            opacity: 0.65,
+                            flexShrink: 0
+                          }}
+                        >
+                          {t('contextModal.contextLineTag')}
+                        </Tag>
+                      )}
+                      <span
+                        style={{
+                          whiteSpace: session.wordWrap ? 'pre-wrap' : 'pre',
+                          wordBreak: session.wordWrap ? 'break-all' : 'normal',
+                          flex: 1
+                        }}
+                      >
+                        {lineText}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </Modal>
+          )
+        })()}
 
       <KeyboardShortcutsModal
         open={isShortcutsModalOpen}
         onClose={() => setIsShortcutsModalOpen(false)}
         isDark={isDark}
+      />
+
+      {/* JSON / XML Payload Inspector Drawer */}
+      <PayloadInspectorDrawer
+        open={payloadDrawerState.open}
+        payload={payloadDrawerState.payload}
+        originalLineNumber={payloadDrawerState.lineNumber}
+        isDark={isDark}
+        onClose={() => setPayloadDrawerState((prev) => ({ ...prev, open: false }))}
       />
     </div>
   )

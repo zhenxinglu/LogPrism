@@ -12,4 +12,5 @@ out
 *.njsproj
 *.sln
 *.sw?
+test-logs/
 .agents/AGENTS.md

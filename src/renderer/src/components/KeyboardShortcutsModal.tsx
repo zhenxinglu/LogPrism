@@ -52,6 +52,11 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
         keys: ['Shift', 'F3'],
         descriptionKey: 'shortcuts.prevMatch',
         defaultDesc: 'Jump to previous search match'
+      },
+      {
+        keys: ['Alt', 'J'],
+        descriptionKey: 'shortcuts.inspectPayload',
+        defaultDesc: 'Format & inspect JSON / XML payload'
       }
     ]
   },

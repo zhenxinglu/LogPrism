@@ -4,6 +4,39 @@ All notable changes to **LogPrism** will be documented in this file.
 
 ---
 
+## [1.3.0] - 2026-10-07
+
+### 🚀 New Features & Enhancements
+
+- **Embedded JSON & XML Payload Inspector**:
+  - Smart automatic detection of embedded JSON objects/arrays and XML blocks in log messages.
+  - Interactive inline `{ } JSON` and `< > XML` badges with accordion-style inline pretty printing.
+  - Full-featured side drawer inspector (`Alt + J`) with hierarchical tree view, node depth folding, in-drawer text search, and one-click formatted/raw copying.
+- **Remote SSH Log Streaming & Remote File Browser**:
+  - Live log streaming via SSH with password and private key authentication.
+  - Remote file browser modal (`RemoteFileBrowserModal`) with file extension filtering (`.log`, `.txt`, `.gz`, `*.*`).
+- **IntelliJ IDEA Integration**:
+  - Automatic detection of stack traces and source file references.
+  - Context menu action "Open in IntelliJ IDEA" via `idea://open` deep-linking with direct file and line number positioning.
+- **Keyboard Shortcuts Guide**:
+  - Interactive keyboard shortcuts guide modal (`Ctrl + /`) covering navigation, filtering, drawer toggles, and shortcuts.
+
+### 🐛 Bug Fixes & Reliability
+
+- **Worker Filtering & Memory Optimization**: Offloaded filtering logic to Web Workers and optimized memory retention to prevent OOM on large log files.
+- **UI Responsiveness**: Enhanced virtual scrolling and layout calculation efficiency.
+
+---
+
+## [1.2.0] - 2026-08-19
+
+### 🐛 Bug Fixes & Improvements
+
+- **Highlight Copy Issue**: Fixed an issue where copying text with highlighted keywords included unwanted artifacts.
+- **Recent Files Management**: Improved persistent history management for recent log files.
+
+---
+
 ## [1.1.0] - 2026-07-24
 
 ### 🚀 New Features & Enhancements

@@ -415,7 +415,14 @@ export default function LogViewer(): React.JSX.Element {
         prevTabs.map((t) => {
           if (t.type === 'remote') {
             const rawCombined = (t.content || '') + incomingChunk
-            const cappedContent = capLogContent(rawCombined)
+            let maxAllowedLines = MAX_LOG_BUFFER_LINES
+            if (t.remoteConfig?.readMode === 'tail') {
+              maxAllowedLines = Math.max(t.remoteConfig.tailLines || 1000, MAX_LOG_BUFFER_LINES)
+            } else {
+              // Entire file mode (default): preserve up to 500,000 lines
+              maxAllowedLines = 500000
+            }
+            const cappedContent = capLogContent(rawCombined, maxAllowedLines)
             const lineCount = cappedContent ? cappedContent.split(/\r?\n/).length : 0
             return {
               ...t,

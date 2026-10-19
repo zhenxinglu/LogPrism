@@ -7,6 +7,7 @@ export interface FileIndexInfo {
   totalLines: number
   offsets: Uint32Array | Float64Array | number[]
   isGz?: boolean
+  uncompressedSize?: number
 }
 
 class LogIndexer {
@@ -133,7 +134,8 @@ class LogIndexer {
           fileSize,
           totalLines: finalOffsets.length,
           offsets: finalOffsets,
-          isGz: true
+          isGz: true,
+          uncompressedSize: currentOffset
         }
         this.cache.set(filePath, info)
         resolve(info)
@@ -231,7 +233,11 @@ class LogIndexer {
     const safeEndLine = Math.min(totalLines, safeStartLine + count)
 
     const startByte = indexInfo.offsets[safeStartLine]
-    const endByte = safeEndLine < totalLines ? indexInfo.offsets[safeEndLine] : indexInfo.fileSize
+    const maxByte =
+      indexInfo.isGz && indexInfo.uncompressedSize !== undefined
+        ? indexInfo.uncompressedSize
+        : indexInfo.fileSize
+    const endByte = safeEndLine < totalLines ? indexInfo.offsets[safeEndLine] : maxByte
     const byteLength = endByte - startByte
 
     if (byteLength <= 0) {

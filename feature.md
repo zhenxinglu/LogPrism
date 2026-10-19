@@ -143,8 +143,11 @@
 - [x] **在 IntelliJ IDEA 中打开代码 (Open in IntelliJ IDEA)**：
   - [x] 智能解析日志中的报错堆栈、文件名/类名与代码行号（支持 Java/Kotlin/Groovy/Python 等常见堆栈）。
   - [x] 右键菜单提供 “在 IntelliJ IDEA 中打开 (filename:line)” 动态选项，基于 JetBrains `idea://open` 原生 URL Scheme 一键拉起 IDEA 并精准定位至源码行。
-- [ ] **内嵌长文本与报文格式化 (Embedded Payload Formatting)**：
-  - 对日志中单行嵌套的超长 JSON 响应体、XML 报文或 SQL 语句，提供右键手风琴格式化展开与语法高亮。
+- [x] **内嵌 JSON / XML 自动识别与就地展开 (Inline Pretty-Print & Payload Inspector Drawer)**：
+  - [x] **智能双向识别**：自动感知整行或被前缀/后缀包围的内嵌 JSON 对象/数组与 XML 报文（集成 LRU 缓存与平衡括号扫描）。
+  - [x] **就地展开徽章 (Inline Badge)**：在日志行首渲染 `{ } JSON` / `< > XML` 紧凑彩色徽章，点击即在当前行下以手风琴模式就地展开美化视图，行高平滑虚拟滚动适配。
+  - [x] **全功能侧边抽屉 (Payload Inspector Drawer)**：支持树状层级视图（交互式折叠/展开、节点深度控制、单节点值复制）与高亮代码视图，内置页内搜索与匹配计数、一键复制美化代码及原始报文。
+  - [x] **多端交互触发**：支持徽章点击、右键快捷菜单 “Format JSON/XML Payload”、以及全局快捷键 `Alt + J`。
 - [ ] **实时监控告警触发器 (Real-time Alerting Triggers)**：
   - Tail 实时追踪模式下，匹配指定正则或错误频率阈值时触发系统原生通知或提示音。
 
@@ -174,8 +177,8 @@ _日常故障排查中使用频率最高、性价比极高且为专业日志分�
 
 _解决典型排查痛点，大幅提升长文本、长报文以及多文件排查体验。_
 
-3. **内嵌长文本与报文格式化 (Embedded Payload Formatting)**
-   - **核心价值**：针对日志行中嵌套的超长 JSON 响应体、XML 或 SQL 语句，提供右键手风琴美化展开与高亮。
+3. - [x] **内嵌 JSON / XML 自动识别与就地展开 (Inline Pretty-Print & Payload Inspector Drawer)** [已实现]
+   - **核心价值**：针对日志行中嵌套的超长 JSON 响应体或 XML 报文，提供行内徽章就地手风琴美化展开、交互式树状抽屉查看与语法搜索高亮。
 4. **日志智能聚合与降噪 (Log Clustering & Pattern Recognition)**
    - **核心价值**：面对生产环境高频刷屏报错，自动折叠相似堆栈并展示频次统计，避免关键日志被淹没。
 

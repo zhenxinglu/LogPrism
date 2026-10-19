@@ -12,6 +12,7 @@ export interface SshConfig {
   privateKey?: string
   passphrase?: string
   remotePath: string
+  readMode?: 'entire' | 'tail'
   tailLines?: number
 }
 
@@ -133,9 +134,17 @@ class SshManager {
           remotePath: config.remotePath
         })
 
-        const tailCount = config.tailLines && config.tailLines > 0 ? config.tailLines : 1000
         const escapedPath = config.remotePath.replace(/'/g, `'\\''`)
-        const command = `tail -n ${tailCount} -f '${escapedPath}'`
+        const readMode = config.readMode || 'entire'
+        let command: string
+
+        if (readMode === 'tail') {
+          const tailCount = config.tailLines && config.tailLines > 0 ? config.tailLines : 1000
+          command = `tail -n ${tailCount} -f '${escapedPath}'`
+        } else {
+          // Default: read the entire file from line 1 and follow updates
+          command = `tail -n +1 -f '${escapedPath}'`
+        }
 
         this.client?.exec(command, (err, stream) => {
           if (err) {
