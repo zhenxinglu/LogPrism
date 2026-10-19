@@ -76,7 +76,7 @@ function startWatchingFile(filePath: string, webContents: Electron.WebContents):
               if (!indexInfo) {
                 indexInfo = await logIndexer.indexFile(filePath)
               }
-              const content = logIndexer.readFullContentIfSmall(filePath)
+              const content = logIndexer.readFullContent(filePath)
               const latestIndex = indexInfo || logIndexer.getIndexInfo(filePath)
 
               if (!webContents || webContents.isDestroyed() || webContents.isCrashed()) {
@@ -214,7 +214,7 @@ app.whenReady().then(() => {
   ipcMain.handle(
     'read-log-lines',
     async (_event, filePath: string, startLine: number, count: number) => {
-      const safeCount = Math.min(Math.max(1, count || 50000), 50000)
+      const safeCount = count && count > 0 ? count : 0
       return logIndexer.readLogLines(filePath, startLine, safeCount)
     }
   )
@@ -244,7 +244,7 @@ app.whenReady().then(() => {
     try {
       const filePath = filePaths[0]
       const indexInfo = await logIndexer.indexFile(filePath)
-      const content = logIndexer.readFullContentIfSmall(filePath)
+      const content = logIndexer.readFullContent(filePath)
       const window = BrowserWindow.fromWebContents(event.sender)
       if (window) {
         window.setTitle(`LogPrism - ${filePath}`)
@@ -271,7 +271,7 @@ app.whenReady().then(() => {
       const recentFiles: string[] = Array.isArray(config.recentFiles) ? config.recentFiles : []
       if (lastFilePath && existsSync(lastFilePath)) {
         const indexInfo = await logIndexer.indexFile(lastFilePath)
-        const content = logIndexer.readFullContentIfSmall(lastFilePath)
+        const content = logIndexer.readFullContent(lastFilePath)
         const window = BrowserWindow.fromWebContents(event.sender)
         if (window) {
           window.setTitle(`LogPrism - ${lastFilePath}`)
@@ -299,7 +299,7 @@ app.whenReady().then(() => {
         return { success: false, error: 'File does not exist' }
       }
       const indexInfo = await logIndexer.indexFile(filePath)
-      const content = logIndexer.readFullContentIfSmall(filePath)
+      const content = logIndexer.readFullContent(filePath)
       const window = BrowserWindow.fromWebContents(event.sender)
       if (window) {
         window.setTitle(`LogPrism - ${filePath}`)

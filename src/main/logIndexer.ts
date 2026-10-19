@@ -230,7 +230,8 @@ class LogIndexer {
     }
 
     const safeStartLine = Math.max(0, startLine)
-    const safeEndLine = Math.min(totalLines, safeStartLine + count)
+    const safeEndLine =
+      count && count > 0 ? Math.min(totalLines, safeStartLine + count) : totalLines
 
     const startByte = indexInfo.offsets[safeStartLine]
     const maxByte =
@@ -286,6 +287,24 @@ class LogIndexer {
           closeSync(fd)
         } catch {}
       }
+    }
+  }
+
+  /**
+   * Reads full file content directly as string (supports plain text and .gz files).
+   */
+  public readFullContent(filePath: string): string | null {
+    try {
+      if (this.isGzipFile(filePath)) {
+        const compressed = readFileSync(filePath)
+        const decompressed = gunzipSync(compressed)
+        return decompressed.toString('utf-8')
+      }
+
+      return readFileSync(filePath, 'utf-8')
+    } catch (err) {
+      console.error('Failed to read file content:', err)
+      return null
     }
   }
 

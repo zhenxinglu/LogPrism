@@ -12,16 +12,6 @@ import { getSavedLanguage, setSavedLanguage } from '../i18n'
 
 const defaultStart = dayjs('00:00:00', 'HH:mm:ss')
 const defaultEnd = dayjs('23:59:59.999', 'HH:mm:ss.SSS')
-
-const MAX_LOG_BUFFER_LINES = 50000
-
-function capLogContent(content: string, maxLines = MAX_LOG_BUFFER_LINES): string {
-  if (!content) return ''
-  const lines = content.split(/\r?\n/)
-  if (lines.length <= maxLines) return content
-  return lines.slice(lines.length - maxLines).join('\n')
-}
-
 export interface PersistedFilterState {
   includeKeywords?: string
   excludeKeywords?: string
@@ -111,6 +101,7 @@ export default function LogViewer(): React.JSX.Element {
   )
   const [downloadPercent, setDownloadPercent] = useState<number>(0)
   const [updateErrorMsg, setUpdateErrorMsg] = useState<string>('')
+  const [isLoadingFile, setIsLoadingFile] = useState<boolean>(false)
 
   const isDarkMode = themeMode === 'dark'
   const antdLocale = currentLang === 'zh' ? zhCN : enUS
@@ -198,6 +189,7 @@ export default function LogViewer(): React.JSX.Element {
   // Load app startup data & last opened file
   useEffect(() => {
     const initialize = async () => {
+      setIsLoadingFile(true)
       try {
         const ver = await window.api.getAppVersion()
         setAppVersion(ver)
@@ -234,17 +226,12 @@ export default function LogViewer(): React.JSX.Element {
             const fileName = lastFileRes.filePath.split(/[/\\]/).pop() || lastFileRes.filePath
             let fileContent = lastFileRes.content
             if (fileContent === null && lastFileRes.totalLines) {
-              const lineCount = Math.min(lastFileRes.totalLines, 50000)
               const lineRes = await window.api.readLogLines(
                 lastFileRes.filePath,
                 0,
-                lineCount
+                lastFileRes.totalLines
               )
-              fileContent = (lineRes && lineRes.lines) ? lineRes.lines.join('\n') : ''
-            }
-
-            if (fileContent) {
-              fileContent = capLogContent(fileContent)
+              fileContent = lineRes && lineRes.lines ? lineRes.lines.join('\n') : ''
             }
 
             const initialTab: LogTabSession = {
@@ -302,6 +289,7 @@ export default function LogViewer(): React.JSX.Element {
         console.error('Initialization error:', err)
       } finally {
         setIsInitialized(true)
+        setIsLoadingFile(false)
       }
     }
     initialize()
@@ -364,15 +352,10 @@ export default function LogViewer(): React.JSX.Element {
 
         let fileContent = data.content
         if (fileContent === null && data.totalLines) {
-          const lineCountToRead = Math.min(data.totalLines, 50000)
-          const lineRes = await window.api.readLogLines(filePath, 0, lineCountToRead)
+          const lineRes = await window.api.readLogLines(filePath, 0, data.totalLines)
           if (lineRes && lineRes.lines) {
             fileContent = lineRes.lines.join('\n')
           }
-        }
-
-        if (fileContent !== null && fileContent !== undefined) {
-          fileContent = capLogContent(fileContent)
         }
 
         setTabs((prevTabs) =>
@@ -399,7 +382,7 @@ export default function LogViewer(): React.JSX.Element {
     return () => unsubscribe()
   }, [])
 
-  // Listen to remote SSH data across all tabs with chunk buffering and buffer line capping
+  // Listen to remote SSH data across all tabs with chunk buffering
   const remoteBufferRef = useRef<string>('')
 
   useEffect(() => {
@@ -415,18 +398,10 @@ export default function LogViewer(): React.JSX.Element {
         prevTabs.map((t) => {
           if (t.type === 'remote') {
             const rawCombined = (t.content || '') + incomingChunk
-            let maxAllowedLines = MAX_LOG_BUFFER_LINES
-            if (t.remoteConfig?.readMode === 'tail') {
-              maxAllowedLines = Math.max(t.remoteConfig.tailLines || 1000, MAX_LOG_BUFFER_LINES)
-            } else {
-              // Entire file mode (default): preserve up to 500,000 lines
-              maxAllowedLines = 500000
-            }
-            const cappedContent = capLogContent(rawCombined, maxAllowedLines)
-            const lineCount = cappedContent ? cappedContent.split(/\r?\n/).length : 0
+            const lineCount = rawCombined ? rawCombined.split(/\r?\n/).length : 0
             return {
               ...t,
-              content: cappedContent,
+              content: rawCombined,
               totalLines: lineCount,
               updateTime: now.format('HH:mm:ss'),
               lastUpdateTimestamp: now.valueOf()
@@ -463,68 +438,19 @@ export default function LogViewer(): React.JSX.Element {
 
   // Open local file in new tab
   const handleOpenLocalFile = async () => {
-    const res = await window.api.openLogFile()
-    if (res && res.filePath) {
-      const fileName = res.filePath.split(/[/\\]/).pop() || res.filePath
-      let fileContent = res.content
-      if (fileContent === null && res.totalLines) {
-        const lineCount = Math.min(res.totalLines, 50000)
-        const lineRes = await window.api.readLogLines(res.filePath, 0, lineCount)
-        fileContent = (lineRes && lineRes.lines) ? lineRes.lines.join('\n') : ''
-      }
+    setIsLoadingFile(true)
+    try {
+      const res = await window.api.openLogFile()
+      if (res && res.filePath) {
+        const fileName = res.filePath.split(/[/\\]/).pop() || res.filePath
+        let fileContent = res.content
+        if (fileContent === null && res.totalLines) {
+          const lineRes = await window.api.readLogLines(res.filePath, 0, res.totalLines)
+          fileContent = lineRes && lineRes.lines ? lineRes.lines.join('\n') : ''
+        }
 
-      if (fileContent) {
-        fileContent = capLogContent(fileContent)
-      }
+        if (res.recentFiles) setRecentFiles(res.recentFiles)
 
-      if (res.recentFiles) setRecentFiles(res.recentFiles)
-
-      const newTabId = `tab-${Date.now()}`
-      const newTab: LogTabSession = {
-        ...createInitialTabSession(newTabId, fileName, res.filePath, showTimeline, savedFilterState),
-        content: fileContent || '',
-        totalLines: res.totalLines || 0,
-        fileSize: res.fileSize || 0
-      }
-
-      setTabs((prev) => [...prev, newTab])
-      setActiveTabId(newTabId)
-
-      if (activePane === 'paneA' || !activeTabIdPaneA) {
-        setActiveTabIdPaneA(newTabId)
-      } else {
-        setActiveTabIdPaneB(newTabId)
-      }
-    }
-  }
-
-  // Select recent file in new or active tab
-  const handleSelectRecentFile = async (filePath: string) => {
-    const res = await window.api.openFileByPath(filePath)
-    if (res.success && res.filePath) {
-      const fileName = res.filePath.split(/[/\\]/).pop() || res.filePath
-      let fileContent = res.content
-      if ((fileContent === null || fileContent === undefined) && res.totalLines) {
-        const lineCount = Math.min(res.totalLines, 50000)
-        const lineRes = await window.api.readLogLines(res.filePath, 0, lineCount)
-        fileContent = (lineRes && lineRes.lines) ? lineRes.lines.join('\n') : ''
-      }
-
-      if (fileContent) {
-        fileContent = capLogContent(fileContent)
-      }
-      if (res.recentFiles) setRecentFiles(res.recentFiles)
-
-      const currentTab = tabs.find((t) => t.id === activeTabId)
-      if (currentTab && !currentTab.filePath && !currentTab.content) {
-        updateTabSession(currentTab.id, {
-          title: fileName,
-          filePath: res.filePath,
-          content: fileContent || '',
-          totalLines: res.totalLines || 0,
-          fileSize: res.fileSize || 0
-        })
-      } else {
         const newTabId = `tab-${Date.now()}`
         const newTab: LogTabSession = {
           ...createInitialTabSession(newTabId, fileName, res.filePath, showTimeline, savedFilterState),
@@ -532,13 +458,62 @@ export default function LogViewer(): React.JSX.Element {
           totalLines: res.totalLines || 0,
           fileSize: res.fileSize || 0
         }
+
         setTabs((prev) => [...prev, newTab])
         setActiveTabId(newTabId)
-        if (activePane === 'paneA') setActiveTabIdPaneA(newTabId)
-        else setActiveTabIdPaneB(newTabId)
+
+        if (activePane === 'paneA' || !activeTabIdPaneA) {
+          setActiveTabIdPaneA(newTabId)
+        } else {
+          setActiveTabIdPaneB(newTabId)
+        }
       }
-    } else {
-      message.error(res.error || 'Failed to open file.')
+    } finally {
+      setIsLoadingFile(false)
+    }
+  }
+
+  // Select recent file in new or active tab
+  const handleSelectRecentFile = async (filePath: string) => {
+    setIsLoadingFile(true)
+    try {
+      const res = await window.api.openFileByPath(filePath)
+      if (res.success && res.filePath) {
+        const fileName = res.filePath.split(/[/\\]/).pop() || res.filePath
+        let fileContent = res.content
+        if ((fileContent === null || fileContent === undefined) && res.totalLines) {
+          const lineRes = await window.api.readLogLines(res.filePath, 0, res.totalLines)
+          fileContent = lineRes && lineRes.lines ? lineRes.lines.join('\n') : ''
+        }
+        if (res.recentFiles) setRecentFiles(res.recentFiles)
+
+        const currentTab = tabs.find((t) => t.id === activeTabId)
+        if (currentTab && !currentTab.filePath && !currentTab.content) {
+          updateTabSession(currentTab.id, {
+            title: fileName,
+            filePath: res.filePath,
+            content: fileContent || '',
+            totalLines: res.totalLines || 0,
+            fileSize: res.fileSize || 0
+          })
+        } else {
+          const newTabId = `tab-${Date.now()}`
+          const newTab: LogTabSession = {
+            ...createInitialTabSession(newTabId, fileName, res.filePath, showTimeline, savedFilterState),
+            content: fileContent || '',
+            totalLines: res.totalLines || 0,
+            fileSize: res.fileSize || 0
+          }
+          setTabs((prev) => [...prev, newTab])
+          setActiveTabId(newTabId)
+          if (activePane === 'paneA') setActiveTabIdPaneA(newTabId)
+          else setActiveTabIdPaneB(newTabId)
+        }
+      } else {
+        message.error(res.error || 'Failed to open file.')
+      }
+    } finally {
+      setIsLoadingFile(false)
     }
   }
 
@@ -676,6 +651,36 @@ export default function LogViewer(): React.JSX.Element {
 
         {/* Log View Area (Single View or Split View Grid) */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex' }}>
+          {isLoadingFile && (
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 1000,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.65)',
+                backdropFilter: 'blur(3px)'
+              }}
+            >
+              <Spin size="large" />
+              <span
+                style={{
+                  marginTop: 12,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: isDarkMode ? '#e6edf3' : '#1f2328'
+                }}
+              >
+                {t('common.loading', { defaultValue: 'Loading log file...' })}
+              </span>
+            </div>
+          )}
           {splitMode === 'none' ? (
             <div style={{ width: '100%', height: '100%' }}>
               <LogSingleViewer

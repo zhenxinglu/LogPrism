@@ -238,7 +238,7 @@ export const en = {
     no: 'No',
     copy: 'Copy',
     copied: 'Copied to clipboard',
-    loading: 'Loading...'
+    loading: 'Loading log file...'
   },
   tabs: {
     newTab: 'New Tab',

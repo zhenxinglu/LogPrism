@@ -237,7 +237,7 @@ export const zh = {
     no: '否',
     copy: '复制',
     copied: '已复制到剪贴板',
-    loading: '加载中...'
+    loading: 'Loading log file...'
   },
   tabs: {
     newTab: '新建标签页',
